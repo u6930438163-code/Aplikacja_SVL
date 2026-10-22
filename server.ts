@@ -3324,6 +3324,94 @@ function isTemplateFallbackOutput(text: string): boolean {
   );
 }
 
+// ===== Claude (subskrypcja Pro/Max) przez Claude Agent SDK =====
+// Uwierzytelnienie: CLAUDE_CODE_OAUTH_TOKEN (z polecenia `claude setup-token`, zużywa
+// miesięczny kredyt Agent SDK z subskrypcji) albo ANTHROPIC_API_KEY (płatność za tokeny).
+// Bez żadnego z nich Claude jest po prostu pomijany, a czat działa jak wcześniej.
+const CLAUDE_MODEL = (process.env.CLAUDE_MODEL || 'sonnet').trim();
+const CLAUDE_TIMEOUT_MS = 25_000;
+const CLAUDE_BLOCKED_TOOLS = [
+  'Bash', 'BashOutput', 'KillShell', 'Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep',
+  'NotebookEdit', 'WebFetch', 'WebSearch', 'Task', 'Agent', 'TodoWrite',
+];
+
+function claudeEnabled(): boolean {
+  return !!((process.env.CLAUDE_CODE_OAUTH_TOKEN || '').trim() || (process.env.ANTHROPIC_API_KEY || '').trim());
+}
+
+let claudeSdkPromise: Promise<any> | null = null;
+function loadClaudeSdk(): Promise<any> {
+  if (!claudeSdkPromise) {
+    const moduleName = '@anthropic-ai/claude-agent-sdk';
+    claudeSdkPromise = import(moduleName).catch((err) => {
+      pushSystemLog('warn', 'AGENT', `[CLAUDE] Brak pakietu ${moduleName} (npm install): ${String(err?.message || err).slice(0, 80)}`);
+      claudeSdkPromise = null;
+      return null;
+    });
+  }
+  return claudeSdkPromise;
+}
+
+/** Jedna odpowiedź modelu Claude (bez narzędzi, jedna tura). Zwraca tekst albo czytelny powód błędu. */
+async function callClaudeAgent(
+  systemPrompt: string,
+  messages: Array<{ role: string; content: string }>,
+  timeoutMs = CLAUDE_TIMEOUT_MS
+): Promise<{ text: string | null; error?: string }> {
+  if (!claudeEnabled()) return { text: null, error: 'brak tokenu Claude (CLAUDE_CODE_OAUTH_TOKEN)' };
+  const sdk = await loadClaudeSdk();
+  if (!sdk?.query) return { text: null, error: 'brak pakietu Claude Agent SDK' };
+
+  const history = messages.slice(0, -1)
+    .map((m) => `${m.role === 'user' ? 'TATA' : 'TY'}: ${m.content}`)
+    .join('\n\n');
+  const last = messages[messages.length - 1]?.content || '';
+  const prompt = history ? `Dotychczasowa rozmowa:\n${history}\n\nNowa wiadomość od Taty:\n${last}` : last;
+
+  const abortController = new AbortController();
+  const timer = setTimeout(() => abortController.abort(), Math.max(1000, timeoutMs));
+  try {
+    let text: string | null = null;
+    let error: string | undefined;
+    const stream = sdk.query({
+      prompt,
+      options: {
+        systemPrompt,
+        model: CLAUDE_MODEL,
+        maxTurns: 1,
+        tools: [],
+        allowedTools: [],
+        disallowedTools: CLAUDE_BLOCKED_TOOLS,
+        settingSources: [],
+        abortController,
+      },
+    });
+    for await (const msg of stream) {
+      if (msg?.type === 'result') {
+        if (msg.subtype === 'success' && !msg.is_error && typeof msg.result === 'string' && msg.result.trim().length > 3) {
+          text = msg.result.trim();
+        } else {
+          error = `Claude zakończył bez odpowiedzi (${msg.subtype || 'błąd'})`;
+        }
+      }
+    }
+    return text ? { text } : { text: null, error: error || 'Claude zwrócił pustą odpowiedź' };
+  } catch (err: any) {
+    const raw = String(err?.message || err);
+    pushSystemLog('warn', 'AGENT', `[CLAUDE] ${raw.slice(0, 100)}`);
+    const error = abortController.signal.aborted
+      ? 'przekroczony czas odpowiedzi Claude'
+      : /401|403|auth|token|login/i.test(raw)
+      ? 'odrzucony token Claude'
+      : /429|limit|credit|quota/i.test(raw)
+      ? 'wyczerpany limit/kredyt Claude'
+      : 'błąd połączenia z Claude';
+    return { text: null, error };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Direct response synthesizer powered by Pure Mathematical Without_NLP Engine
 async function callPollinationsOpenAI(messages: Array<{ role: string; content: string }>, timeoutMs = 12000): Promise<string | null> {
   // Jeden wspólny limit czasu na obie próby (klucz bieżący + zapasowy), żeby nie podwajać oczekiwania
@@ -3576,6 +3664,24 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
     return null;
   };
 
+  const tryClaude = async (): Promise<SourcedReply | null> => {
+    if (!claudeEnabled()) return null;
+    const res = await callClaudeAgent(
+      systemMessageContent,
+      [...historyMsgs, { role: 'user', content: `${message}${filePromptAddon}` }],
+      Math.min(CLAUDE_TIMEOUT_MS, remaining())
+    );
+    if (!res.text) {
+      lastFailure = res.error || lastFailure;
+      return null;
+    }
+    const cleaned = cleanModelOutput(res.text);
+    if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
+      return { text: cleaned, source: `claude:${CLAUDE_MODEL}` };
+    }
+    return null;
+  };
+
   const tryGemini = async (): Promise<SourcedReply | null> => {
     if (!ai) return null;
     const contentsParts: any[] = [];
@@ -3644,8 +3750,9 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
     return null;
   };
 
-  // Kolejność: API Pollinations (OpenAI) → zapasowo Gemini. Obrazy rozumie tylko Gemini, więc wtedy odwrotnie.
-  const order = hasImage ? [tryGemini, tryPollinations] : [tryPollinations, tryGemini];
+  // Kolejność: Claude (subskrypcja) → API Pollinations (OpenAI) → zapasowo Gemini.
+  // Obrazy rozumie tylko Gemini, więc przy załączonym obrazie Gemini idzie pierwsze.
+  const order = hasImage ? [tryGemini, tryClaude, tryPollinations] : [tryClaude, tryPollinations, tryGemini];
   for (const attempt of order) {
     if (remaining() < 2000) {
       lastFailure = lastFailure || 'przekroczony łączny czas odpowiedzi';
@@ -3713,6 +3820,21 @@ Wypowiedz się w imieniu wszystkich trzech agentów, używając DOKŁADNIE poni�
     return { Alex: one('Alex'), Astyria: one('Astyria'), Aurelius: one('Aurelius') };
   };
   const goodEnough = (p: ReturnType<typeof parseTriadText>) => !!(p.Alex || p.Astyria || p.Aurelius);
+
+  // 0. Claude (subskrypcja Pro/Max przez Agent SDK) — jedno zapytanie dla całej Triady
+  if (claudeEnabled() && remaining() > 3000) {
+    const res = await callClaudeAgent(
+      triadPrompt,
+      [...historyMsgs, { role: 'user', content: userContent }],
+      Math.min(CLAUDE_TIMEOUT_MS, remaining())
+    );
+    if (res.text) {
+      const parsed = parseTriadText(res.text);
+      if (goodEnough(parsed)) return toResult(parsed, `claude:${CLAUDE_MODEL}`);
+    } else if (res.error) {
+      lastFailure = res.error;
+    }
+  }
 
   // 1. API Pollinations (OpenAI)
   try {
