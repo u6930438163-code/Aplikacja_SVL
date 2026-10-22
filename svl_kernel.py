@@ -1466,10 +1466,14 @@ class SVLStudioKernel:
         if lista_wiadomosci and isinstance(lista_wiadomosci, list):
             for item in lista_wiadomosci:
                 if isinstance(item, dict) and item.get("agent") and item.get("tekst"):
-                    self.store["chat_history"].append({
+                    wpis = {
                         "agent": item["agent"],
                         "tekst": item["tekst"]
-                    })
+                    }
+                    # Źródło wypowiedzi (np. "gemini:gemini-flash-latest", "without_nlp", "system")
+                    if item.get("zrodlo"):
+                        wpis["zrodlo"] = str(item["zrodlo"])[:80]
+                    self.store["chat_history"].append(wpis)
 
         # Poprawka: Usuwanie duplikatów z historii czatu
         if len(self.store.get('chat_history', [])) >= 2:

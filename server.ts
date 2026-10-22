@@ -2703,6 +2703,7 @@ app.post('/api/astyria/mission', async (req, res) => {
   const { action, command, silentChat } = req.body;
   try {
     let resultMessage = '';
+    let resultSource: ReplySource = 'system';
     let actionTitle = '';
 
     // Always run real log & lock repair first
@@ -2803,7 +2804,9 @@ app.post('/api/astyria/mission', async (req, res) => {
       resultMessage = `Tato! Zakończyłam głęboki skan logów i telemetrii maszyny wirtualnej **VM_Ten_System (v${targetVer})**:\n\n${repairDiag}`;
     } else if (action === 'custom_command' && command) {
       actionTitle = `Wykonanie polecenia Astyrii: "${command.slice(0, 50)}"`;
-      resultMessage = await generateAgentReply('Astyria', command, currentState?.store || {}, undefined, repairDiag);
+      const sourced = await generateAgentReplyWithSource('Astyria', command, currentState?.store || {}, undefined, repairDiag);
+      resultMessage = sourced.text;
+      resultSource = sourced.source;
     } else {
       actionTitle = 'Cykl Misji Ciągłej Naprawy Systemu & VM_Ten_System Astyrii';
       resultMessage = `Tato! Misja Ciągła Naprawy Systemu oraz ulepszenia z maszyny wirtualnej **VM_Ten_System (v${targetVer})** działają w pętli czasu rzeczywistego. Zużycie RAM wynosi ${mem.rssMB} MB (${mem.utilizationPercent}% < 70% Idle).`;
@@ -2814,9 +2817,9 @@ app.post('/api/astyria/mission', async (req, res) => {
       const batchMsgs = command && command.trim()
         ? [
             { agent: 'Mateusz Mitek', tekst: command.trim() },
-            { agent: 'Astyria', tekst: resultMessage }
+            { agent: 'Astyria', tekst: resultMessage, zrodlo: resultSource }
           ]
-        : [{ agent: 'Astyria', tekst: resultMessage }];
+        : [{ agent: 'Astyria', tekst: resultMessage, zrodlo: resultSource }];
 
       await runPythonKernel([
         '--action', 'batch_msg',
@@ -3223,22 +3226,22 @@ Czas pracy:      ${res.processingTimeMs} ms`;
       const cleanCmd = command.trim();
       const currentState = await getPythonKernelState(true);
       const store = currentState?.store || {};
-      const [alexReplyRaw, astyriaReplyRaw, aureliusReplyRaw] = await Promise.all([
-        generateAgentReply('Alex', cleanCmd, store),
-        generateAgentReply('Astyria', cleanCmd, store),
-        generateAgentReply('Aurelius', cleanCmd, store)
+      const [alexSourced, astyriaSourced, aureliusSourced] = await Promise.all([
+        generateAgentReplyWithSource('Alex', cleanCmd, store),
+        generateAgentReplyWithSource('Astyria', cleanCmd, store),
+        generateAgentReplyWithSource('Aurelius', cleanCmd, store)
       ]);
-      const alexReply = processAgentActions(alexReplyRaw);
-      const astyriaReply = processAgentActions(astyriaReplyRaw);
-      const aureliusReply = processAgentActions(aureliusReplyRaw);
+      const alexReply = processAgentActions(alexSourced.text);
+      const astyriaReply = processAgentActions(astyriaSourced.text);
+      const aureliusReply = processAgentActions(aureliusSourced.text);
 
       await runPythonKernel([
         '--action', 'batch_msg',
         '--msgs_json', JSON.stringify([
           { agent: 'Mateusz Mitek', tekst: cleanCmd },
-          { agent: 'Alex', tekst: alexReply },
-          { agent: 'Astyria', tekst: astyriaReply },
-          { agent: 'Aurelius', tekst: aureliusReply }
+          { agent: 'Alex', tekst: alexReply, zrodlo: alexSourced.source },
+          { agent: 'Astyria', tekst: astyriaReply, zrodlo: astyriaSourced.source },
+          { agent: 'Aurelius', tekst: aureliusReply, zrodlo: aureliusSourced.source }
         ])
       ]);
 
@@ -3443,6 +3446,19 @@ function checkIsMathRequest(text: string): boolean {
 }
 
 // Helper to generate live AI response for an agent using Direct Gemini + Pollinations Multi-Model Router + Rich Contextual Core
+/**
+ * Źródło wypowiedzi zapisywane przy każdej wiadomości w DATA_STORE (pole "zrodlo"),
+ * aby w czacie było widać, czy odpowiedź wygenerował model językowy, czy gotowy szablon.
+ *  - "gemini:<model>"  — odpowiedź modelu Gemini
+ *  - "without_nlp"     — szablon z silnika withoutNlpEngine (dopasowanie słów kluczowych)
+ *  - "system"          — stały komunikat zapisany w kodzie serwera (misje, naprawy)
+ */
+type ReplySource = string;
+interface SourcedReply {
+  text: string;
+  source: ReplySource;
+}
+
 async function generateAgentReply(
   agentName: string,
   message: string,
@@ -3451,6 +3467,17 @@ async function generateAgentReply(
   repairTelemetry?: string,
   skipPollinations = false
 ): Promise<string> {
+  return (await generateAgentReplyWithSource(agentName, message, store, fileData, repairTelemetry, skipPollinations)).text;
+}
+
+async function generateAgentReplyWithSource(
+  agentName: string,
+  message: string,
+  store: any,
+  fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
+  repairTelemetry?: string,
+  skipPollinations = false
+): Promise<SourcedReply> {
   const getDynamicReply = () => generateDynamicAgentReply(agentName, message, store, fileData, repairTelemetry);
   const rawVer = store?.config?.sys_version || '8.5.3';
   const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.3' : rawVer;
@@ -3561,7 +3588,7 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
         if (result && 'text' in result && result.text) {
           const cleaned = cleanModelOutput(result.text.trim());
           if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
-            return cleaned;
+            return { text: cleaned, source: `gemini:${modelName}` };
           }
         }
       } catch (err: any) {
@@ -3571,7 +3598,7 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
   }
 
   // 2. INSTANT DIRECT WITHOUT_NLP + HYPEROS CONVERSATIONAL ENGINE (< 1ms latency)
-  return getDynamicReply();
+  return { text: getDynamicReply(), source: 'without_nlp' };
 }
 
 // Unified instant generator for Triad mode powered by without_nlp + 128-bit BinaryHyperspaceKernel
@@ -3705,9 +3732,9 @@ app.post('/api/kernel/agent', async (req, res) => {
         '--action', 'batch_msg',
         '--msgs_json', JSON.stringify([
           { agent: 'Mateusz Mitek', tekst: recordedMsg },
-          { agent: 'Alex', tekst: alexReply },
-          { agent: 'Astyria', tekst: astyriaReply },
-          { agent: 'Aurelius', tekst: aureliusReply }
+          { agent: 'Alex', tekst: alexReply, zrodlo: 'without_nlp' },
+          { agent: 'Astyria', tekst: astyriaReply, zrodlo: 'without_nlp' },
+          { agent: 'Aurelius', tekst: aureliusReply, zrodlo: 'without_nlp' }
         ]),
         ...syncArgs
       ]);
@@ -3721,14 +3748,15 @@ app.post('/api/kernel/agent', async (req, res) => {
           Astyria: astyriaReply,
           Aurelius: aureliusReply
         },
+        sources: { Alex: 'without_nlp', Astyria: 'without_nlp', Aurelius: 'without_nlp' },
         file: fileData ? { name: fileData.name, type: fileData.type } : undefined,
         state: finalState
       });
     }
 
     // Single agent execution
-    const replyTextRaw = await generateAgentReply(agent, cleanMsg, store, fileData, repairTelemetry);
-    const replyText = processAgentActions(replyTextRaw);
+    const sourcedReply = await generateAgentReplyWithSource(agent, cleanMsg, store, fileData, repairTelemetry);
+    const replyText = processAgentActions(sourcedReply.text);
 
     const currentVersion = store?.config?.sys_version || '8.5.3';
     const detectedVer = extractTargetVersionFromChat(
@@ -3747,7 +3775,7 @@ app.post('/api/kernel/agent', async (req, res) => {
       '--action', 'batch_msg',
       '--msgs_json', JSON.stringify([
         { agent: 'Mateusz Mitek', tekst: recordedMsg },
-        { agent, tekst: replyText }
+        { agent, tekst: replyText, zrodlo: sourcedReply.source }
       ]),
       ...syncArgs
     ]);
@@ -3755,6 +3783,7 @@ app.post('/api/kernel/agent', async (req, res) => {
     const finalState = await getPythonKernelState(true);
     return res.json({
       reply: replyText,
+      source: sourcedReply.source,
       agent,
       file: fileData ? { name: fileData.name, type: fileData.type } : undefined,
       state: finalState

@@ -71,6 +71,47 @@ const ChatInputBar = React.memo(({ onSend, isLoading, attachedFile, selectedTarg
 
 const CHAT_PAGE_SIZE = 60;
 
+/** Czytelny opis źródła wypowiedzi (pole "zrodlo" w DATA_STORE). */
+function describeSource(zrodlo?: string): { label: string; title: string; className: string } {
+  if (!zrodlo) {
+    return {
+      label: 'źródło nieznane',
+      title: 'Wiadomość sprzed wprowadzenia oznaczania źródła — nie wiadomo, czy wygenerował ją model, czy szablon.',
+      className: 'bg-slate-800/70 text-slate-400 border-slate-700',
+    };
+  }
+  if (zrodlo.startsWith('gemini')) {
+    const model = zrodlo.split(':')[1];
+    return {
+      label: model ? `model AI · ${model}` : 'model AI · Gemini',
+      title: 'Odpowiedź wygenerowana na żywo przez model językowy Gemini.',
+      className: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
+    };
+  }
+  if (zrodlo === 'without_nlp_offline') {
+    return {
+      label: 'szablon offline',
+      title: 'Serwer nie odpowiedział — gotowy tekst z silnika without_nlp wygenerowany w przeglądarce.',
+      className: 'bg-rose-950/60 text-rose-300 border-rose-800/60',
+    };
+  }
+  if (zrodlo.startsWith('without_nlp')) {
+    return {
+      label: 'szablon without_nlp',
+      title: 'Gotowy tekst z silnika without_nlp, dobrany po słowach kluczowych — bez modelu językowego.',
+      className: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
+    };
+  }
+  if (zrodlo === 'system') {
+    return {
+      label: 'komunikat systemowy',
+      title: 'Stały komunikat zapisany w kodzie serwera (misja, naprawa, synchronizacja).',
+      className: 'bg-sky-950/60 text-sky-300 border-sky-800/60',
+    };
+  }
+  return { label: zrodlo, title: `Źródło: ${zrodlo}`, className: 'bg-slate-800/70 text-slate-300 border-slate-700' };
+}
+
 /**
  * Pojedyncza wiadomość czatu — memoizowana, więc nowa wiadomość nie przelicza
  * (KaTeX, Markdown, SVG) całej historii od nowa.
@@ -91,7 +132,7 @@ const ChatMessageItem = React.memo(({ msg, idx }: { msg: DataStore['chat_history
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 mb-1.5 pb-1 border-b border-slate-800/50">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5 pb-1 border-b border-slate-800/50">
         <div className="flex items-center gap-2">
           <span
             className={`font-bold px-2 py-0.5 rounded text-[11px] ${
@@ -109,9 +150,22 @@ const ChatMessageItem = React.memo(({ msg, idx }: { msg: DataStore['chat_history
           </span>
         </div>
 
-        <span className="text-[10px] text-slate-500">
-          ID #{idx + 1}
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!isOperator && (() => {
+            const src = describeSource(msg.zrodlo);
+            return (
+              <span
+                className={`px-1.5 py-0.5 rounded border text-[9px] font-mono whitespace-nowrap ${src.className}`}
+                title={src.title}
+              >
+                {src.label}
+              </span>
+            );
+          })()}
+          <span className="text-[10px] text-slate-500">
+            ID #{idx + 1}
+          </span>
+        </div>
       </div>
 
       {/* Message Body with KaTeX LaTeX formulas and Markdown */}
@@ -153,6 +207,7 @@ const ChatMessageItem = React.memo(({ msg, idx }: { msg: DataStore['chat_history
   a.idx === b.idx &&
   a.msg.agent === b.msg.agent &&
   a.msg.tekst === b.msg.tekst &&
+  a.msg.zrodlo === b.msg.zrodlo &&
   a.msg.file?.name === b.msg.file?.name &&
   a.msg.file?.dataUrl === b.msg.file?.dataUrl
 );

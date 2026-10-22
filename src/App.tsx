@@ -110,6 +110,7 @@ const chatSignatureChanged = (prev: DataStore, next: DataStore) => {
     nextChat.length !== prevChat.length ||
     lastPrev?.tekst !== lastNext?.tekst ||
     lastPrev?.agent !== lastNext?.agent ||
+    lastPrev?.zrodlo !== lastNext?.zrodlo ||
     (next.update_history || []).length !== (prev.update_history || []).length ||
     next.config?.sys_version !== prev.config?.sys_version
   );
@@ -251,7 +252,7 @@ export default function App() {
     }
   }, [handleSyncSystem]);
 
-  const appendReplies = useCallback((replies: Array<{ agent: string; tekst: string }>) => {
+  const appendReplies = useCallback((replies: Array<{ agent: string; tekst: string; zrodlo?: string }>) => {
     setDataStore((prev) => ({
       ...prev,
       chat_history: [...(prev.chat_history || []), ...replies],
@@ -327,12 +328,12 @@ export default function App() {
         setDataStore(serverStore);
       } else if (data.replies && agentName === 'triad') {
         appendReplies([
-          { agent: 'Alex', tekst: data.replies.Alex },
-          { agent: 'Astyria', tekst: data.replies.Astyria },
-          { agent: 'Aurelius', tekst: data.replies.Aurelius },
+          { agent: 'Alex', tekst: data.replies.Alex, zrodlo: data.sources?.Alex },
+          { agent: 'Astyria', tekst: data.replies.Astyria, zrodlo: data.sources?.Astyria },
+          { agent: 'Aurelius', tekst: data.replies.Aurelius, zrodlo: data.sources?.Aurelius },
         ]);
       } else if (data.reply) {
-        appendReplies([{ agent: agentName === 'triad' ? 'Alex' : agentName, tekst: data.reply }]);
+        appendReplies([{ agent: agentName === 'triad' ? 'Alex' : agentName, tekst: data.reply, zrodlo: data.source }]);
       }
     } catch (err: any) {
       console.warn('API call error or timeout, recovering state or synthesizing contextual fallback:', err);
@@ -356,11 +357,16 @@ export default function App() {
           (['Alex', 'Astyria', 'Aurelius'] as const).map((agent) => ({
             agent,
             tekst: withoutNlpEngine.synthesizeDirectResponse(agent, messageText, current, fileData),
+            zrodlo: 'without_nlp_offline',
           }))
         );
       } else {
         appendReplies([
-          { agent: agentName, tekst: withoutNlpEngine.synthesizeDirectResponse(agentName, messageText, current, fileData) },
+          {
+            agent: agentName,
+            tekst: withoutNlpEngine.synthesizeDirectResponse(agentName, messageText, current, fileData),
+            zrodlo: 'without_nlp_offline',
+          },
         ]);
       }
     } finally {

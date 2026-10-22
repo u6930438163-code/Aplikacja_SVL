@@ -26,6 +26,12 @@ export interface ChatRecord {
   id?: string;
   timestamp?: string;
   file?: FileAttachment;
+  /**
+   * Źródło wypowiedzi: "gemini:<model>" (model językowy), "without_nlp" (szablon),
+   * "without_nlp_offline" (szablon w przeglądarce, gdy serwer nie odpowiedział), "system".
+   * Brak pola = wiadomość sprzed wprowadzenia oznaczania.
+   */
+  zrodlo?: string;
 }
 
 export interface DataStore {
