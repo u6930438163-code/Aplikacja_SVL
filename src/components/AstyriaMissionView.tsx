@@ -154,7 +154,7 @@ export const AstyriaMissionView: React.FC<AstyriaMissionViewProps> = ({
   const ramPct = vmInfo?.memoryTelemetry?.utilizationPercent ?? 3.5;
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-110px)] bg-slate-950 font-mono text-xs overflow-y-auto p-3 md:p-6 space-y-4">
+    <div className="flex flex-col flex-1 min-h-[600px] bg-slate-950 font-mono text-xs overflow-y-auto p-3 md:p-6 space-y-4">
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between pb-4 border-b border-cyan-900/50 gap-4">
         <div className="flex items-center gap-3">

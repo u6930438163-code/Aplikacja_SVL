@@ -285,7 +285,7 @@ export const WithoutNlpView: React.FC = () => {
   }, [isRunning, omega, amplitude, waveMode, harmonicsCount]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] bg-slate-950 text-slate-100 font-mono p-4 gap-4 overflow-y-auto">
+    <div className="flex flex-col flex-1 min-h-[600px] bg-slate-950 text-slate-100 font-mono p-4 gap-4 overflow-y-auto">
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border border-emerald-500/40 rounded-xl p-5 shadow-2xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

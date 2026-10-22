@@ -9,22 +9,24 @@
 }
 
 html, body {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
   margin: 0;
   padding: 0;
   overflow-x: hidden;
+  overflow-y: auto;
   background-color: #020617; /* slate-950 */
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
+  touch-action: pan-y pinch-zoom;
 }
 
 #root {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 /* Prevent Android Chrome / Huawei Browser auto-zoom on input focus, prevent mirror typing, and enforce strict LTR */
@@ -108,6 +110,7 @@ input, select, textarea {
 .overflow-y-auto,
 .overflow-auto {
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 /* Szanujemy ustawienie "ogranicz animacje" w systemie */

@@ -40,7 +40,7 @@ export const ChronolithView: React.FC<ChronolithViewProps> = ({ dataStore, onUpd
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-125px)] bg-slate-950 font-mono text-xs">
+    <div className="flex flex-col flex-1 min-h-[600px] bg-slate-950 font-mono text-xs">
       {/* Top Banner */}
       <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">

@@ -336,7 +336,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col lg:flex-row h-[calc(100vh-125px)] bg-slate-950 font-mono text-xs">
+    <div className="flex flex-col lg:flex-row flex-1 min-h-[600px] bg-slate-950 font-mono text-xs">
       {/* Left/Main Column: Chat Stream */}
       <div className="flex-1 flex flex-col border-r border-slate-800">
         {/* Channel Bar */}

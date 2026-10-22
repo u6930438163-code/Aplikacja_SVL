@@ -437,6 +437,17 @@ Wpisz 'help', 'genscript' lub 'root status', aby zobaczyć listę instrukcji ją
   };
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
+  const terminalScrollRef = useRef<HTMLDivElement>(null);
+  const [isUserAtBottom, setIsUserAtBottom] = useState(true);
+
+  const handleScroll = () => {
+    const el = terminalScrollRef.current;
+    if (!el) return;
+    const threshold = 60;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+    setIsUserAtBottom(atBottom);
+  };
+
   const dataStoreRef = useRef(dataStore);
   dataStoreRef.current = dataStore;
   const onUpdateDataStoreRef = useRef(onUpdateDataStore);
@@ -447,8 +458,10 @@ Wpisz 'help', 'genscript' lub 'root status', aby zobaczyć listę instrukcji ją
   onExecutePythonCommandRef.current = onExecutePythonCommand;
 
   useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'auto' });
-  }, [logs.length]);
+    if (isUserAtBottom) {
+      terminalEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [logs.length, isUserAtBottom]);
 
   const addLog = (content: string, type: LogEntry['type'] = 'output') => {
     const now = new Date();
@@ -868,14 +881,28 @@ Integralność tagów:  ZGODNA (<<<DATA_STORE_START>>> ... <<<DATA_STORE_END>>>)
 
       {/* Terminal Output Area */}
       <div
+        ref={terminalScrollRef}
+        onScroll={handleScroll}
         dir="ltr"
         style={{ direction: 'ltr', textAlign: 'left' }}
-        className="flex-1 overflow-y-auto p-4 space-y-2 select-text"
+        className="flex-1 overflow-y-auto p-4 space-y-2 select-text relative"
       >
         {logs.slice(-150).map((entry) => (
           <LogEntryItem key={entry.id} entry={entry} />
         ))}
         <div ref={terminalEndRef} />
+
+        {!isUserAtBottom && (
+          <button
+            onClick={() => {
+              terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+              setIsUserAtBottom(true);
+            }}
+            className="sticky bottom-4 float-right z-10 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-[11px] shadow-lg flex items-center gap-1.5 cursor-pointer transition"
+          >
+            ↓ Przewiń do dołu
+          </button>
+        )}
       </div>
 
       {/* Terminal Input Bar */}
