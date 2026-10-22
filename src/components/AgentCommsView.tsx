@@ -88,6 +88,14 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
       className: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
     };
   }
+  if (zrodlo.startsWith('claude')) {
+    const model = zrodlo.split(':')[1] || 'Claude';
+    return {
+      label: `model AI · Claude ${model}`,
+      title: 'Odpowiedź wygenerowana na żywo przez model Claude (subskrypcja przez Claude Agent SDK).',
+      className: 'bg-amber-950/70 text-amber-300 border-amber-700/60',
+    };
+  }
   if (zrodlo.startsWith('openai')) {
     const model = zrodlo.split(':')[1] || 'openai';
     return {
