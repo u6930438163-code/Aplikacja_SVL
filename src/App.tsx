@@ -13,7 +13,7 @@ import { SystemHealthDock } from './components/SystemHealthDock';
 import { usePolling } from './hooks/usePolling';
 import { fetchJsonIfChanged, invalidateEtag } from './utils/fetchJson';
 
-const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_5_3_pure_hyperos';
+const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_5_5_pure_hyperos';
 const STATE_URL = '/api/kernel/state';
 
 // ---------------------------------------------------------------------------

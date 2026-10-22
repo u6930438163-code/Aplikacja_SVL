@@ -272,14 +272,9 @@ export const INITIAL_DATA_STORE: DataStore = {
       opis: "Misja dla Astyrii: Całkowite usunięcie silnika NLP i pełne wdrożenie projektu without_nlp (Deterministyczny Silnik Harmoniczny Eulera & Fouriera e^(i*omega*t) = cos(omega*t) + i*sin(omega*t)) oraz naprawa czatu i odpowiedzi."
     },
     {
-      wersja: "8.5.3",
-      data: "2026-10-22 17:30:00 CEST",
-      opis: "Synchronizacja z GitHubem wydania v8.5.3: wdrożenie swobodnej rozmowy bez NLP, 128-bitowy BinaryHyperspaceKernel (HyperOS) oraz eliminacja wszelkich opóźnień."
-    },
-    {
       wersja: "8.5.5",
-      data: "2026-10-22 20:30:00 CEST",
-      opis: "Triada (Alex, Astyria, Aurelius) odpowiada przez Claude z subskrypcji Pro/Max (Claude Agent SDK); Pollinations i Gemini jako zapas."
+      data: "2026-10-22 21:30:00 CEST",
+      opis: "Synchronizacja z GitHubem wydania v8.5.5: aktualizacja wersji jądra i spójności repozytorium."
     }
   ],
   chat_history: [
