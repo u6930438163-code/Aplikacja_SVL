@@ -34,7 +34,7 @@ const ChatInputBar = React.memo(({ onSend, isLoading, attachedFile, selectedTarg
   };
 
   return (
-    <div className="shrink-0 p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
+    <div className="p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
       <button
         type="button"
         onClick={onFileSelectClick}
@@ -252,7 +252,6 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
 
   // Okno renderowania: tylko ostatnie wiadomości trafiają do DOM, starsze na żądanie
   const [visibleCount, setVisibleCount] = useState(CHAT_PAGE_SIZE);
-  const [showDossier, setShowDossier] = useState(false);
   const chatHistory = dataStore.chat_history;
   const firstVisibleIndex = Math.max(0, chatHistory.length - visibleCount);
   const hiddenCount = firstVisibleIndex;
@@ -337,20 +336,12 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col lg:flex-row flex-1 min-h-0 bg-slate-950 font-mono text-xs">
-      {/* Left/Main Column: Chat Stream — zajmuje dostępną wysokość, przewija się tylko lista wiadomości */}
-      <div className="flex-1 min-h-0 flex flex-col border-r border-slate-800">
+    <div className="flex flex-col lg:flex-row bg-slate-950 font-mono text-xs">
+      {/* Left/Main Column: Chat Stream */}
+      <div className="flex flex-col border-r border-slate-800">
         {/* Channel Bar */}
-        <div className="shrink-0 bg-slate-900 border-b border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowDossier((v) => !v)}
-              className="lg:hidden px-2 py-1 rounded border border-slate-700 bg-slate-950 text-slate-300 hover:text-emerald-300 cursor-pointer"
-              aria-expanded={showDossier}
-            >
-              {showDossier ? 'Ukryj agentów' : 'Agenci'}
-            </button>
             <span className="text-slate-400 font-semibold">Kanał:</span>
             <div className="flex items-center gap-1 bg-slate-950 p-1 rounded border border-slate-800">
               <button
@@ -452,7 +443,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
         </div>
 
         {/* Messages Stream */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3" role="log" aria-live="polite">
+        <div className="p-4 space-y-3" role="log" aria-live="polite">
           {hiddenCount > 0 && (
             <button
               type="button"
@@ -488,7 +479,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
         </div>
 
         {/* Quick Prompts */}
-        <div className="shrink-0 bg-slate-950 border-t border-slate-800 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto text-[11px] scrollbar-none">
+        <div className="bg-slate-950 border-t border-slate-800 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto text-[11px] scrollbar-none">
           <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
           <span className="text-slate-500 shrink-0">Wzorce:</span>
 
@@ -598,10 +589,8 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
         />
       </div>
 
-      {/* Right Column: Active Profiles Dossier (na telefonie rozwijany przyciskiem "Agenci") */}
-      <div
-        className={`${showDossier ? 'block' : 'hidden'} lg:block w-full lg:w-80 shrink-0 max-h-[45%] lg:max-h-none bg-slate-900/60 p-4 space-y-4 overflow-y-auto overscroll-contain border-t lg:border-t-0`}
-      >
+      {/* Right Column: Active Profiles Dossier */}
+      <div className="w-full lg:w-80 bg-slate-900/60 p-4 space-y-4 overflow-y-auto border-t lg:border-t-0">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800">
           <span className="font-semibold text-slate-200">Rejestr Agentów SVL</span>
           <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">

@@ -457,8 +457,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      {/* Wysokość = ekran (html/body/#root mają 100%); przewija się tylko <main> */}
-      <div className="h-full w-full bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200 overflow-hidden">
+      <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
         <MemoHeader
           dataStore={dataStore}
           onReset={handleResetToDefault}
@@ -474,7 +473,7 @@ export default function App() {
           versionCount={dataStore?.update_history?.length || 0}
         />
 
-        <main className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain">
+        <main className="flex-1 flex flex-col">
           {sendError && (
             <div
               role="alert"
