@@ -19,7 +19,7 @@ export const SystemHealthDock: React.FC = () => {
   }, 15000);
 
   return (
-    <div className={`fixed bottom-4 right-4 z-50 transition-all ${isExpanded ? 'w-64' : 'w-auto'}`}>
+    <div className={`fixed bottom-28 right-3 lg:bottom-4 lg:right-4 z-50 transition-all ${isExpanded ? 'w-64' : 'w-auto'}`}>
       <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-xl overflow-hidden">
         <div className="flex items-center justify-between p-2 bg-slate-800">
           <div className="flex items-center gap-2">

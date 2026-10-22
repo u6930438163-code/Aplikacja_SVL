@@ -8,25 +8,30 @@
   --sal: env(safe-area-inset-left, 0px);
 }
 
+/*
+ * Układ "powłoki aplikacji": strona ma dokładnie wysokość ekranu i sama się nie przewija.
+ * Przewija się tylko obszar treści (<main>), a w czacie i terminalu — wyłącznie lista
+ * wiadomości / wyjście konsoli. Dzięki temu nagłówek i pole wpisywania zawsze są widoczne.
+ */
 html, body {
-  min-height: 100%;
+  height: 100%;
   width: 100%;
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
+  overscroll-behavior: none;
   background-color: #020617; /* slate-950 */
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
-  touch-action: pan-y pinch-zoom;
+  touch-action: manipulation;
 }
 
 #root {
-  min-height: 100%;
+  height: 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 /* Prevent Android Chrome / Huawei Browser auto-zoom on input focus, prevent mirror typing, and enforce strict LTR */
@@ -106,11 +111,10 @@ input, select, textarea {
   contain-intrinsic-size: auto 160px;
 }
 
-/* Płynne przewijanie list na ekranach dotykowych, bez "przeciągania" całej strony */
+/* Płynne przewijanie list na ekranach dotykowych */
 .overflow-y-auto,
 .overflow-auto {
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
 }
 
 /* Szanujemy ustawienie "ogranicz animacje" w systemie */
