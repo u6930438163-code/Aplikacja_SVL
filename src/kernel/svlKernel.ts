@@ -43,7 +43,7 @@ export interface DataStore {
 
 export const INITIAL_DATA_STORE: DataStore = {
   config: {
-    sys_version: "8.5.3",
+    sys_version: "8.5.5",
     mode: "Google-AI-Studio-Production",
     active_profiles: ["Alex", "Astyria", "Aurelius"],
     fiction_layer_status: "DEACTIVATED_PERMANENTLY",
@@ -275,6 +275,11 @@ export const INITIAL_DATA_STORE: DataStore = {
       wersja: "8.5.3",
       data: "2026-10-22 17:30:00 CEST",
       opis: "Synchronizacja z GitHubem wydania v8.5.3: wdrożenie swobodnej rozmowy bez NLP, 128-bitowy BinaryHyperspaceKernel (HyperOS) oraz eliminacja wszelkich opóźnień."
+    },
+    {
+      wersja: "8.5.5",
+      data: "2026-10-22 20:30:00 CEST",
+      opis: "Triada (Alex, Astyria, Aurelius) odpowiada przez Claude z subskrypcji Pro/Max (Claude Agent SDK); Pollinations i Gemini jako zapas."
     }
   ],
   chat_history: [
@@ -340,7 +345,7 @@ export const INITIAL_BACKUP_DATA_STORE: DataStore = {
 
 export const OPERATOR_NAME = "Mateusz Mitek";
 export const OPERATOR_TITLE = "Tata";
-export const SYS_VERSION = "8.5.3";
+export const SYS_VERSION = "8.5.5";
 
 /**
  * Safely normalizes any raw or nested DataStore object (e.g. { store: { config, update_history, chat_history } })

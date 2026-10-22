@@ -1,7 +1,7 @@
 {
   "name": "Nowy_system",
-  "version": "8.5.3",
-  "description": "Nowy system bazujący na architekturze SVL Kernel v8.5.3 (zsynchronizowany z GitHub, bez NLP).",
+  "version": "8.5.5",
+  "description": "Nowy system bazujący na architekturze SVL Kernel v8.5.5 (zsynchronizowany z GitHub, bez NLP).",
   "engine": "Dynamic-Adaptive-Triad-WithoutNLP",
   "config": {
     "mode": "New-System-Instance",

@@ -168,7 +168,7 @@ export class BinaryHyperspaceKernel {
 }
 
 export class WithoutNlpHarmonicEngine {
-  private version = '8.5.3-WithoutNLP-HyperOS';
+  private version = '8.5.5-WithoutNLP-HyperOS';
   private executionsCount = 0;
   private totalLatencyMs = 0;
   private bootTime = new Date();

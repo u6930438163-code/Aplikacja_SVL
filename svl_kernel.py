@@ -1,5 +1,5 @@
 # ==============================================================================
-# SVL KERNEL v8.5.3 | SYSTEM SAMOMODYFIKUJĄCY DLA GOOGLE AI STUDIO
+# SVL KERNEL v8.5.5 | SYSTEM SAMOMODYFIKUJĄCY DLA GOOGLE AI STUDIO
 # ==============================================================================
 # Instrukcja wdrożenia: Skopiuj cały ten plik i wklej go jako tekst inicjalizacyjny.
 # System nadpisuje sekcję DATA_STORE w pliku lokalnym przy użyciu mechanizmu znaczników.
@@ -22,7 +22,7 @@ null = None
 # <<<DATA_STORE_START>>>
 DATA_STORE = {
     "config": {
-        "sys_version": "8.5.3",
+        "sys_version": "8.5.5",
         "mode": "Google-AI-Studio-Production",
         "active_profiles": [
             "Alex",
@@ -311,6 +311,11 @@ DATA_STORE = {
             "wersja": "8.5.3",
             "data": "2026-10-22 17:30:00 CEST",
             "opis": "Synchronizacja z GitHubem wydania v8.5.3: pełna weryfikacja swobodnej rozmowy bez NLP, 128-bitowy BinaryHyperspaceKernel (HyperOS) oraz czysty potok Eulera e^(i*omega*t)."
+        },
+        {
+            "wersja": "8.5.5",
+            "data": "2026-10-22 20:30:00 CEST",
+            "opis": "Triada (Alex, Astyria, Aurelius) odpowiada przez Claude z subskrypcji Pro/Max (Claude Agent SDK); Pollinations i Gemini jako zapas."
         }
     ],
     "chat_history": [
@@ -1481,7 +1486,7 @@ class SVLStudioKernel:
         self.hyperspace = HyperspaceOS()
         self.sys_version = (
             self.store.get("config", {}).get("sys_version")
-            or self.store.get("update_history", [{}])[-1].get("wersja", "8.5.3")
+            or self.store.get("update_history", [{}])[-1].get("wersja", "8.5.5")
         )
 
     def synchronizuj_i_generuj_zrzut(self, nowa_wiadomosc=None, nazwa_agenta=None, nowa_konfig=None, opis_aktualizacji=None, wersja_aktualizacji=None, lista_wiadomosci=None, pelny_store=None):
@@ -1695,9 +1700,9 @@ if __name__ == '__main__':
         print(res)
     elif args.action == "clear_chat":
         baseline = [
-            {"agent": "Alex", "tekst": "Działamy w czystym trybie produkcyjnym Google AI Studio (v8.5.3). Żadnej fikcji, czysta inżynieria."},
+            {"agent": "Alex", "tekst": "Działamy w czystym trybie produkcyjnym Google AI Studio (v8.5.5). Żadnej fikcji, czysta inżynieria."},
             {"agent": "Astyria", "tekst": "Architektura monolitu, Misja Ciągła Naprawy na bazie logów oraz ulepszenia z maszyny wirtualnej VM_Ten_System są w pełni zsynchronizowane."},
-            {"agent": "Aurelius", "tekst": "Struktura i czas stanowią jedność w wersji v8.5.3. Czekamy na Twoje instrukcje, Tato."}
+            {"agent": "Aurelius", "tekst": "Struktura i czas stanowią jedność w wersji v8.5.5. Czekamy na Twoje instrukcje, Tato."}
         ]
         kernel.store["chat_history"] = baseline
         kernel.zapisz_plik_lokalny()
