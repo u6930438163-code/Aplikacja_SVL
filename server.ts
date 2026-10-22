@@ -1866,15 +1866,9 @@ app.post('/api/hyperos/command', async (req, res) => {
   const { command } = req.body;
   const txt = String(command || '').trim();
   const analysis = withoutNlpEngine.analyzeSignal(txt || 'STATUS', 1.5, 1.0);
-  const replies = {
-    Alex: withoutNlpEngine.synthesizeDirectResponse('Alex', txt),
-    Astyria: withoutNlpEngine.synthesizeDirectResponse('Astyria', txt),
-    Aurelius: withoutNlpEngine.synthesizeDirectResponse('Aurelius', txt),
-  };
   return res.json({
     success: true,
     hyperspace: analysis.hyperspace,
-    replies,
     report: JSON.parse(withoutNlpEngine.generateHyperOSReport()),
   });
 });
@@ -2805,7 +2799,7 @@ app.post('/api/astyria/mission', async (req, res) => {
     } else if (action === 'custom_command' && command) {
       actionTitle = `Wykonanie polecenia Astyrii: "${command.slice(0, 50)}"`;
       const sourced = await generateAgentReplyWithSource('Astyria', command, currentState?.store || {}, undefined, repairDiag);
-      resultMessage = sourced.text;
+      resultMessage = sourced.failed ? buildNoReplyNotice(['Astyria'], sourced.reason) : sourced.text;
       resultSource = sourced.source;
     } else {
       actionTitle = 'Cykl Misji Ciągłej Naprawy Systemu & VM_Ten_System Astyrii';
@@ -3231,22 +3225,19 @@ Czas pracy:      ${res.processingTimeMs} ms`;
         generateAgentReplyWithSource('Astyria', cleanCmd, store),
         generateAgentReplyWithSource('Aurelius', cleanCmd, store)
       ]);
-      const alexReply = processAgentActions(alexSourced.text);
-      const astyriaReply = processAgentActions(astyriaSourced.text);
-      const aureliusReply = processAgentActions(aureliusSourced.text);
+      const chatEntries = sourcedRepliesToChat([
+        ['Alex', alexSourced],
+        ['Astyria', astyriaSourced],
+        ['Aurelius', aureliusSourced],
+      ]);
 
       await runPythonKernel([
         '--action', 'batch_msg',
-        '--msgs_json', JSON.stringify([
-          { agent: 'Mateusz Mitek', tekst: cleanCmd },
-          { agent: 'Alex', tekst: alexReply, zrodlo: alexSourced.source },
-          { agent: 'Astyria', tekst: astyriaReply, zrodlo: astyriaSourced.source },
-          { agent: 'Aurelius', tekst: aureliusReply, zrodlo: aureliusSourced.source }
-        ])
+        '--msgs_json', JSON.stringify([{ agent: 'Mateusz Mitek', tekst: cleanCmd }, ...chatEntries])
       ]);
 
       updatedState = await getPythonKernelState(true);
-      output = `[TRIADA LIVE RESPONSE — ZSYNCHRONIZOWANO Z CZATEM]\n\n[Alex]: ${alexReply}\n\n[Astyria]: ${astyriaReply}\n\n[Aurelius]: ${aureliusReply}`;
+      output = `[TRIADA LIVE RESPONSE — ZSYNCHRONIZOWANO Z CZATEM]\n\n${chatEntries.map((e) => `[${e.agent}]: ${e.tekst}`).join('\n\n')}`;
     }
 
     return res.json({ output, state: updatedState });
@@ -3343,22 +3334,6 @@ function isTemplateFallbackOutput(text: string): boolean {
 }
 
 // Direct response synthesizer powered by Pure Mathematical Without_NLP Engine
-function generateDynamicAgentReply(
-  agentName: string,
-  message: string,
-  store: any,
-  fileData?: any,
-  repairTelemetry?: string
-): string {
-  try {
-    return withoutNlpEngine.synthesizeDirectResponse(agentName, message, store, fileData, repairTelemetry);
-  } catch (err) {
-    const cleanMsg = message.trim();
-    const activeVer = '8.6.0-WithoutNLP';
-    return `Tato! Przetworzyłam Twoją wiadomość ("${cleanMsg.slice(0, 80)}") w rdzeniu without_nlp (v${activeVer}). Wszystkie moduły działają stabilnie!`;
-  }
-}
-
 async function callPollinationsOpenAI(messages: Array<{ role: string; content: string }>, timeoutMs = 3800): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -3450,13 +3425,25 @@ function checkIsMathRequest(text: string): boolean {
  * Źródło wypowiedzi zapisywane przy każdej wiadomości w DATA_STORE (pole "zrodlo"),
  * aby w czacie było widać, czy odpowiedź wygenerował model językowy, czy gotowy szablon.
  *  - "gemini:<model>"  — odpowiedź modelu Gemini
- *  - "without_nlp"     — szablon z silnika withoutNlpEngine (dopasowanie słów kluczowych)
  *  - "system"          — stały komunikat zapisany w kodzie serwera (misje, naprawy)
+ *  - "blad"            — model nie odpowiedział; zapisywana jest uczciwa informacja zamiast
+ *                        gotowej formułki (silnik szablonów odpowiedzi został usunięty)
  */
 type ReplySource = string;
 interface SourcedReply {
   text: string;
   source: ReplySource;
+  /** true, gdy model nie dał odpowiedzi — tekst jest wtedy pusty */
+  failed?: boolean;
+  /** krótki, czytelny powód niepowodzenia (bez surowych komunikatów błędów) */
+  reason?: string;
+}
+
+/** Uczciwy komunikat zapisywany w czacie, gdy model AI nie odpowiedział. */
+function buildNoReplyNotice(agentNames: string[], reason?: string): string {
+  const who = agentNames.length > 1 ? agentNames.join(', ') : agentNames[0] || 'agent';
+  return `⚠️ Brak odpowiedzi: model AI nie odpowiedział, więc ${who} ${agentNames.length > 1 ? 'nie odpisali' : 'nie odpisał(a)'}. ` +
+    `Powód: ${reason || 'nieznany'}. Spróbuj ponownie za chwilę.`;
 }
 
 async function generateAgentReply(
@@ -3478,7 +3465,6 @@ async function generateAgentReplyWithSource(
   repairTelemetry?: string,
   skipPollinations = false
 ): Promise<SourcedReply> {
-  const getDynamicReply = () => generateDynamicAgentReply(agentName, message, store, fileData, repairTelemetry);
   const rawVer = store?.config?.sys_version || '8.5.3';
   const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.3' : rawVer;
   const systemInstruction = AGENT_SYSTEM_PROMPTS[agentName] || AGENT_SYSTEM_PROMPTS.Alex;
@@ -3544,7 +3530,12 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
   const systemMessageContent = `${systemInstruction}\n\n${liveContextBlock}\n\nWAŻNE ZASADY ODPOWIEDZI:\n1. Odpowiadasz wyłącznie jako ${agentName} w pierwszej osobie bezpośrednio do swojego Taty (Mateusza Mitka).\n2. NIGDY nie zaczynaj odpowiedzi od swojego imienia w nawiasie (np. "[${agentName}]:"), NIGDY nie pisz wypowiedzi za pozostałych agentów i NIGDY nie powtarzaj pustych szablonów.\n3. ${formulaRule}`;
 
   // 1. PRIMARY AI ENGINE: Direct Gemini Models (when valid AIza key is present)
-  if (ai) {
+  if (!ai) {
+    return { text: '', source: 'blad', failed: true, reason: 'brak klucza GEMINI_API_KEY na serwerze' };
+  }
+
+  let lastFailure = 'model zwrócił pustą lub odrzuconą odpowiedź';
+  {
     const contentsParts: any[] = [];
 
     for (const h of historyMsgs) {
@@ -3582,8 +3573,13 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
           },
         });
 
-        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(null), 10000);
+        });
         const result = await Promise.race([generatePromise, timeoutPromise]);
+        if (timeoutId) clearTimeout(timeoutId);
+        if (!result) lastFailure = 'przekroczony czas odpowiedzi modelu';
 
         if (result && 'text' in result && result.text) {
           const cleaned = cleanModelOutput(result.text.trim());
@@ -3592,26 +3588,56 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
           }
         }
       } catch (err: any) {
-        pushSystemLog('warn', 'GEMINI', `[MODEL RETRY ${modelName}] ${agentName}: ${err.message?.slice(0, 80) || err}`);
+        const msg = String(err?.message || err);
+        lastFailure = /429|quota|exhaust/i.test(msg)
+          ? 'wyczerpany limit zapytań modelu'
+          : /401|403|api key|permission/i.test(msg)
+          ? 'odrzucony klucz API'
+          : /404|not found/i.test(msg)
+          ? 'niedostępny model'
+          : 'błąd połączenia z modelem';
+        pushSystemLog('warn', 'GEMINI', `[MODEL RETRY ${modelName}] ${agentName}: ${msg.slice(0, 80)}`);
       }
     }
   }
 
-  // 2. INSTANT DIRECT WITHOUT_NLP + HYPEROS CONVERSATIONAL ENGINE (< 1ms latency)
-  return { text: getDynamicReply(), source: 'without_nlp' };
+  // Brak awaryjnych formułek: jeśli żaden model nie odpowiedział, mówimy to wprost
+  pushSystemLog('warn', 'GEMINI', `[BRAK ODPOWIEDZI] ${agentName}: ${lastFailure}`);
+  return { text: '', source: 'blad', failed: true, reason: lastFailure };
 }
 
-// Unified instant generator for Triad mode powered by without_nlp + 128-bit BinaryHyperspaceKernel
+// Triada: każdy agent odpowiada przez model AI (równolegle), bez gotowych szablonów
 async function generateTriadReplies(
   message: string,
   store: any,
   fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
   repairTelemetry?: string
-): Promise<{ Alex: string; Astyria: string; Aurelius: string }> {
-  const Alex = withoutNlpEngine.synthesizeDirectResponse('Alex', message, store, fileData, repairTelemetry);
-  const Astyria = withoutNlpEngine.synthesizeDirectResponse('Astyria', message, store, fileData, repairTelemetry);
-  const Aurelius = withoutNlpEngine.synthesizeDirectResponse('Aurelius', message, store, fileData, repairTelemetry);
+): Promise<{ Alex: SourcedReply; Astyria: SourcedReply; Aurelius: SourcedReply }> {
+  const [Alex, Astyria, Aurelius] = await Promise.all([
+    generateAgentReplyWithSource('Alex', message, store, fileData, repairTelemetry),
+    generateAgentReplyWithSource('Astyria', message, store, fileData, repairTelemetry),
+    generateAgentReplyWithSource('Aurelius', message, store, fileData, repairTelemetry),
+  ]);
   return { Alex, Astyria, Aurelius };
+}
+
+/** Zamienia odpowiedzi agentów na wpisy czatu; nieudane zastępuje jednym uczciwym komunikatem. */
+function sourcedRepliesToChat(replies: Array<[string, SourcedReply]>) {
+  const entries: Array<{ agent: string; tekst: string; zrodlo: string }> = [];
+  const failedAgents: string[] = [];
+  let reason: string | undefined;
+  for (const [agent, reply] of replies) {
+    if (reply.failed || !reply.text.trim()) {
+      failedAgents.push(agent);
+      reason = reason || reply.reason;
+      continue;
+    }
+    entries.push({ agent, tekst: processAgentActions(reply.text), zrodlo: reply.source });
+  }
+  if (failedAgents.length) {
+    entries.push({ agent: 'System', tekst: buildNoReplyNotice(failedAgents, reason), zrodlo: 'blad' });
+  }
+  return entries;
 }
 
 function performExport(filename: string, content: string) {
@@ -3709,15 +3735,16 @@ app.post('/api/kernel/agent', async (req, res) => {
 
     if (agent === 'triad') {
       const triadReplies = await generateTriadReplies(cleanMsg, store, fileData, repairTelemetry);
-
-      const alexReply = processAgentActions(triadReplies.Alex);
-      const astyriaReply = processAgentActions(triadReplies.Astyria);
-      const aureliusReply = processAgentActions(triadReplies.Aurelius);
+      const chatEntries = sourcedRepliesToChat([
+        ['Alex', triadReplies.Alex],
+        ['Astyria', triadReplies.Astyria],
+        ['Aurelius', triadReplies.Aurelius],
+      ]);
 
       const currentVersion = store?.config?.sys_version || '8.5.3';
       const detectedVer = extractTargetVersionFromChat(
         store?.chat_history || [],
-        [cleanMsg, alexReply, astyriaReply, aureliusReply],
+        [cleanMsg, ...chatEntries.filter((e) => e.zrodlo !== 'blad').map((e) => e.tekst)],
         currentVersion
       );
       const syncArgs: string[] = (isRepairOrSyncIntent || detectedVer !== currentVersion)
@@ -3727,15 +3754,10 @@ app.post('/api/kernel/agent', async (req, res) => {
           ]
         : [];
 
-      // Single atomic write for Tata's message + all 3 Triad replies
+      // Single atomic write for Tata's message + Triad replies
       await runPythonKernel([
         '--action', 'batch_msg',
-        '--msgs_json', JSON.stringify([
-          { agent: 'Mateusz Mitek', tekst: recordedMsg },
-          { agent: 'Alex', tekst: alexReply, zrodlo: 'without_nlp' },
-          { agent: 'Astyria', tekst: astyriaReply, zrodlo: 'without_nlp' },
-          { agent: 'Aurelius', tekst: aureliusReply, zrodlo: 'without_nlp' }
-        ]),
+        '--msgs_json', JSON.stringify([{ agent: 'Mateusz Mitek', tekst: recordedMsg }, ...chatEntries]),
         ...syncArgs
       ]);
 
@@ -3743,12 +3765,7 @@ app.post('/api/kernel/agent', async (req, res) => {
       return res.json({
         success: true,
         triad: true,
-        replies: {
-          Alex: alexReply,
-          Astyria: astyriaReply,
-          Aurelius: aureliusReply
-        },
-        sources: { Alex: 'without_nlp', Astyria: 'without_nlp', Aurelius: 'without_nlp' },
+        entries: chatEntries,
         file: fileData ? { name: fileData.name, type: fileData.type } : undefined,
         state: finalState
       });
@@ -3756,14 +3773,13 @@ app.post('/api/kernel/agent', async (req, res) => {
 
     // Single agent execution
     const sourcedReply = await generateAgentReplyWithSource(agent, cleanMsg, store, fileData, repairTelemetry);
-    const replyText = processAgentActions(sourcedReply.text);
+    const chatEntries = sourcedRepliesToChat([[agent, sourcedReply]]);
+    const replyText = sourcedReply.failed ? '' : chatEntries[0].tekst;
 
     const currentVersion = store?.config?.sys_version || '8.5.3';
-    const detectedVer = extractTargetVersionFromChat(
-      store?.chat_history || [],
-      [cleanMsg, replyText],
-      currentVersion
-    );
+    const detectedVer = sourcedReply.failed
+      ? currentVersion
+      : extractTargetVersionFromChat(store?.chat_history || [], [cleanMsg, replyText], currentVersion);
     const syncArgs: string[] = (isRepairOrSyncIntent || detectedVer !== currentVersion)
       ? [
           '--version_tag', detectedVer,
@@ -3773,10 +3789,7 @@ app.post('/api/kernel/agent', async (req, res) => {
 
     await runPythonKernel([
       '--action', 'batch_msg',
-      '--msgs_json', JSON.stringify([
-        { agent: 'Mateusz Mitek', tekst: recordedMsg },
-        { agent, tekst: replyText, zrodlo: sourcedReply.source }
-      ]),
+      '--msgs_json', JSON.stringify([{ agent: 'Mateusz Mitek', tekst: recordedMsg }, ...chatEntries]),
       ...syncArgs
     ]);
 
@@ -3784,6 +3797,7 @@ app.post('/api/kernel/agent', async (req, res) => {
     return res.json({
       reply: replyText,
       source: sourcedReply.source,
+      entries: chatEntries,
       agent,
       file: fileData ? { name: fileData.name, type: fileData.type } : undefined,
       state: finalState

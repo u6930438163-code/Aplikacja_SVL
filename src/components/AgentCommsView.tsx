@@ -88,6 +88,13 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
       className: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
     };
   }
+  if (zrodlo === 'blad') {
+    return {
+      label: 'brak odpowiedzi AI',
+      title: 'Model AI nie odpowiedział — zamiast gotowej formułki zapisano informację o błędzie.',
+      className: 'bg-rose-950/60 text-rose-300 border-rose-800/60',
+    };
+  }
   if (zrodlo === 'without_nlp_offline') {
     return {
       label: 'szablon offline',
@@ -98,7 +105,7 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
   if (zrodlo.startsWith('without_nlp')) {
     return {
       label: 'szablon without_nlp',
-      title: 'Gotowy tekst z silnika without_nlp, dobrany po słowach kluczowych — bez modelu językowego.',
+      title: 'Gotowy tekst z dawnego silnika without_nlp (usunięty) — dobrany po słowach kluczowych, bez modelu językowego.',
       className: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
     };
   }

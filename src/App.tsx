@@ -119,8 +119,6 @@ const chatSignatureChanged = (prev: DataStore, next: DataStore) => {
 export default function App() {
   // Stan jest zawsze znormalizowany w momencie zapisu — render go nie przelicza
   const [dataStore, setRawDataStore] = useState<DataStore>(loadInitialStore);
-  const dataStoreRef = useRef(dataStore);
-  dataStoreRef.current = dataStore;
 
   const setDataStore: React.Dispatch<React.SetStateAction<DataStore>> = useCallback((updater) => {
     setRawDataStore((prev) => {
@@ -134,6 +132,7 @@ export default function App() {
   const isAgentLoadingRef = useRef(false);
   isAgentLoadingRef.current = isAgentLoading;
   const [showReportModal, setShowReportModal] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   // Expose navigation to window for internal component linking
   useEffect(() => {
@@ -286,6 +285,7 @@ export default function App() {
 
     setIsAgentLoading(true);
     isAgentLoadingRef.current = true;
+    setSendError(null);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90000);
@@ -326,49 +326,23 @@ export default function App() {
           }
         }
         setDataStore(serverStore);
-      } else if (data.replies && agentName === 'triad') {
-        appendReplies([
-          { agent: 'Alex', tekst: data.replies.Alex, zrodlo: data.sources?.Alex },
-          { agent: 'Astyria', tekst: data.replies.Astyria, zrodlo: data.sources?.Astyria },
-          { agent: 'Aurelius', tekst: data.replies.Aurelius, zrodlo: data.sources?.Aurelius },
-        ]);
-      } else if (data.reply) {
-        appendReplies([{ agent: agentName === 'triad' ? 'Alex' : agentName, tekst: data.reply, zrodlo: data.source }]);
+      } else if (Array.isArray(data.entries)) {
+        appendReplies(data.entries);
       }
     } catch (err: any) {
-      console.warn('API call error or timeout, recovering state or synthesizing contextual fallback:', err);
+      console.warn('API call error or timeout, recovering state from server:', err);
 
-      // Immediately attempt to sync state from disk in case server finished writing
+      // Serwer mógł zdążyć zapisać odpowiedź — pobieramy aktualny stan
       try {
         const store = await fetchServerStore();
-        if (store) {
-          setDataStore(store);
-          return;
-        }
+        if (store) setDataStore(store);
       } catch (syncErr) {
         console.error('Recovery failed:', syncErr);
       }
 
-      // Silnik without_nlp ładowany dopiero, gdy jest potrzebny (awaryjnie)
-      const { withoutNlpEngine } = await import('./lib/withoutNlpEngine');
-      const current = dataStoreRef.current;
-      if (agentName === 'triad') {
-        appendReplies(
-          (['Alex', 'Astyria', 'Aurelius'] as const).map((agent) => ({
-            agent,
-            tekst: withoutNlpEngine.synthesizeDirectResponse(agent, messageText, current, fileData),
-            zrodlo: 'without_nlp_offline',
-          }))
-        );
-      } else {
-        appendReplies([
-          {
-            agent: agentName,
-            tekst: withoutNlpEngine.synthesizeDirectResponse(agentName, messageText, current, fileData),
-            zrodlo: 'without_nlp_offline',
-          },
-        ]);
-      }
+      // Bez gotowych formułek: mówimy wprost, że odpowiedź nie dotarła
+      const reason = err?.name === 'AbortError' ? 'serwer nie odpowiedział w ciągu 90 s' : err?.message || 'błąd połączenia';
+      setSendError(`Nie udało się uzyskać odpowiedzi od ${agentName === 'triad' ? 'Triady' : agentName} (${reason}). Spróbuj ponownie.`);
     } finally {
       clearTimeout(timeoutId);
       setIsAgentLoading(false);
@@ -500,6 +474,22 @@ export default function App() {
         />
 
         <main className="flex-1 flex flex-col">
+          {sendError && (
+            <div
+              role="alert"
+              className="mx-3 mt-2 flex items-start justify-between gap-3 rounded-lg border border-rose-800/60 bg-rose-950/60 px-3 py-2 font-mono text-[11px] text-rose-200"
+            >
+              <span>⚠️ {sendError}</span>
+              <button
+                type="button"
+                onClick={() => setSendError(null)}
+                className="shrink-0 cursor-pointer text-rose-300 hover:text-rose-100"
+                aria-label="Zamknij komunikat"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <ErrorBoundary key={activeTab}>
             <Suspense fallback={<ViewFallback />}>{renderView()}</Suspense>
           </ErrorBoundary>

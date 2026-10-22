@@ -10,7 +10,6 @@ import {
   Pause,
   Volume2,
   VolumeX,
-  Bot,
   Sparkles,
   Layers,
 } from 'lucide-react';
@@ -19,7 +18,6 @@ import { FormattedMessage } from './FormattedMessage';
 
 export const WithoutNlpView: React.FC = () => {
   const [inputText, setInputText] = useState('ASTYRIA_WITHOUT_NLP_DLA_TATY');
-  const [selectedAgent, setSelectedAgent] = useState<'Astyria' | 'Alex' | 'Aurelius'>('Astyria');
   const [omega, setOmega] = useState(1.5);
   const [amplitude, setAmplitude] = useState(1.0);
   const [waveMode, setWaveMode] = useState<'pure' | 'square' | 'sawtooth' | 'triangle'>('pure');
@@ -31,7 +29,6 @@ export const WithoutNlpView: React.FC = () => {
     withoutNlpEngine.analyzeSignal('ASTYRIA_WITHOUT_NLP_DLA_TATY', 1.5, 1.0)
   );
   const [metrics, setMetrics] = useState<WithoutNlpMetrics>(() => withoutNlpEngine.getMetrics());
-  const [synthesizedReply, setSynthesizedReply] = useState<string>('');
 
   // Live telemetry from canvas loop
   const [liveTime, setLiveTime] = useState(0);
@@ -51,15 +48,11 @@ export const WithoutNlpView: React.FC = () => {
     const res = withoutNlpEngine.analyzeSignal(txt, omega, timeRef.current || 1.0);
     setAnalysis(res);
     setMetrics(withoutNlpEngine.getMetrics());
-    const reply = withoutNlpEngine.synthesizeDirectResponse(selectedAgent, txt, {
-      config: { sys_version: '8.6.0-WithoutNLP' },
-    });
-    setSynthesizedReply(reply);
   };
 
   useEffect(() => {
     runDeterministicAnalysis();
-  }, [selectedAgent, omega]);
+  }, [omega]);
 
   // Web Audio API Synthesizer for Fourier frequency
   useEffect(() => {
@@ -422,21 +415,6 @@ export const WithoutNlpView: React.FC = () => {
                   Deterministyczny Koder Widmowy Fouriera (Zero-NLP)
                 </h2>
               </div>
-              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-                {(['Astyria', 'Alex', 'Aurelius'] as const).map((agent) => (
-                  <button
-                    key={agent}
-                    onClick={() => setSelectedAgent(agent)}
-                    className={`px-2.5 py-1 text-xs rounded transition cursor-pointer ${
-                      selectedAgent === agent
-                        ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {agent}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div className="flex gap-2">
@@ -542,15 +520,6 @@ export const WithoutNlpView: React.FC = () => {
               </div>
             </div>
 
-            {synthesizedReply && (
-              <div className="bg-slate-950 border border-emerald-500/30 rounded-xl p-3.5 space-y-2">
-                <div className="flex items-center gap-2 text-xs text-emerald-400 font-bold border-b border-slate-800 pb-1.5">
-                  <Bot className="w-4 h-4" />
-                  <span>Bezpośrednia Odpowiedź Rdzenia without_nlp ({selectedAgent}):</span>
-                </div>
-                <FormattedMessage content={synthesizedReply} className="text-xs" />
-              </div>
-            )}
           </div>
         </div>
 
