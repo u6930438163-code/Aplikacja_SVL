@@ -4,6 +4,7 @@ import { SYSTEM_AGENTS, AgentProfile } from '../kernel/agents';
 import { Send, Sparkles, User, Layers, ShieldCheck, CheckCircle2, RefreshCw, Paperclip, Image as ImageIcon, FileText, X, Sigma } from 'lucide-react';
 import { processUploadFile } from '../utils/fileHelper';
 import { FormattedMessage } from './FormattedMessage';
+import type { LocalEngineState, LocalModelOption } from '../lib/localEngine';
 
 interface AgentCommsViewProps {
   dataStore: DataStore;
@@ -14,7 +15,83 @@ interface AgentCommsViewProps {
   onTriggerInitiative?: () => Promise<void>;
   onUnclog?: () => void;
   onRestoreBackup?: () => void;
+  /** Silnik rozmowy: chmura (Gemini na serwerze) albo lokalny model w przeglądarce */
+  chatEngine?: 'cloud' | 'local';
+  onChangeEngine?: (engine: 'cloud' | 'local') => void;
+  localEngine?: LocalEngineState;
+  localModels?: LocalModelOption[];
+  localModelId?: string;
+  onChangeLocalModel?: (id: string) => void;
+  onLoadLocalModel?: () => void;
+  /** Odpowiedź lokalnego modelu pisana na żywo */
+  streamingReply?: { agent: string; text: string } | null;
 }
+
+/** Panel uruchamiania lokalnego modelu (pobranie, postęp, brak WebGPU, błąd). */
+const LocalEnginePanel: React.FC<{
+  state: LocalEngineState;
+  models: LocalModelOption[];
+  modelId: string;
+  onChangeModel?: (id: string) => void;
+  onLoad?: () => void;
+}> = ({ state, models, modelId, onChangeModel, onLoad }) => {
+  const model = models.find((m) => m.id === modelId) || models[0];
+  const busy = state.status === 'checking' || state.status === 'loading';
+  if (state.status === 'ready' && state.modelId === modelId) {
+    return (
+      <div className="shrink-0 px-3 py-1.5 bg-violet-950/40 border-t border-violet-900/50 text-[11px] text-violet-200 flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+        Lokalny model działa na tym urządzeniu: <strong className="font-semibold">{model?.label}</strong> — bez API i bez gotowych formułek.
+      </div>
+    );
+  }
+  return (
+    <div className="shrink-0 p-3 bg-violet-950/30 border-t border-violet-900/50 text-[11px] text-slate-300 space-y-2">
+      <div className="text-violet-200 font-semibold">Lokalny model AI w przeglądarce</div>
+      <p className="text-slate-400 leading-relaxed">
+        Model działa w całości na tym urządzeniu (bez zewnętrznego API). Wymaga jednorazowego pobrania
+        {model ? ` ok. ${model.sizeMB >= 1000 ? (model.sizeMB / 1000).toFixed(1) + ' GB' : model.sizeMB + ' MB'}` : ''} — najlepiej przez Wi‑Fi;
+        potem wczytuje się z pamięci przeglądarki. To mały model językowy, więc bywa prostszy niż Gemini.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={modelId}
+          disabled={busy}
+          onChange={(e) => onChangeModel?.(e.target.value)}
+          className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200 text-[11px] max-w-full"
+        >
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} (~{m.sizeMB >= 1000 ? (m.sizeMB / 1000).toFixed(1) + ' GB' : m.sizeMB + ' MB'})
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onLoad}
+          className="px-3 py-1 rounded bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-semibold cursor-pointer"
+        >
+          {busy ? 'Uruchamianie…' : state.status === 'ready' ? 'Przełącz model' : 'Pobierz i uruchom'}
+        </button>
+      </div>
+      {model?.description && <p className="text-slate-500">{model.description}</p>}
+      {busy && (
+        <div className="space-y-1" role="status" aria-live="polite">
+          <div className="h-1.5 w-full bg-slate-800 rounded overflow-hidden">
+            <div className="h-full bg-violet-500 transition-all" style={{ width: `${Math.round(state.progress * 100)}%` }} />
+          </div>
+          <div className="text-slate-400 truncate">
+            {Math.round(state.progress * 100)}% · {state.message}
+          </div>
+        </div>
+      )}
+      {(state.status === 'unsupported' || state.status === 'error') && state.error && (
+        <p className="text-rose-300">{state.error}</p>
+      )}
+    </div>
+  );
+};
 
 interface ChatInputBarProps {
   onSend: (text: string) => void;
@@ -96,6 +173,14 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
       className: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
     };
   }
+  if (zrodlo.startsWith('lokalny:')) {
+    const model = zrodlo.slice('lokalny:'.length).replace(/-q\d.*$/, '');
+    return {
+      label: `model lokalny · ${model}`,
+      title: 'Odpowiedź wygenerowana przez mały model AI działający w przeglądarce, na tym urządzeniu (bez API).',
+      className: 'bg-violet-950/70 text-violet-300 border-violet-700/60',
+    };
+  }
   if (zrodlo === 'blad') {
     return {
       label: 'brak odpowiedzi AI',
@@ -110,11 +195,11 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
       className: 'bg-rose-950/60 text-rose-300 border-rose-800/60',
     };
   }
-  if (zrodlo === 'without_nlp:hyperos_128bit' || zrodlo.startsWith('without_nlp:hyperos')) {
+  if (zrodlo.startsWith('without_nlp:hyperos') || zrodlo.startsWith('Nowy_system')) {
     return {
-      label: 'HyperOS · 128-bit',
-      title: 'Deterministyczna synteza bez NLP w 128-bitowej binarnej hiperprzestrzeni (odległość Hamminga + Euler/Fourier).',
-      className: 'bg-cyan-950/70 text-cyan-300 border-cyan-700/60',
+      label: 'szablon (bez modelu)',
+      title: 'Gotowy tekst z kodu serwera (dawny „HyperOS / Nowy System”) — nie wygenerował go żaden model; mechanizm usunięty.',
+      className: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
     };
   }
   if (zrodlo.startsWith('without_nlp')) {
@@ -243,6 +328,14 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   onTriggerInitiative,
   onUnclog,
   onRestoreBackup,
+  chatEngine = 'cloud',
+  onChangeEngine,
+  localEngine,
+  localModels = [],
+  localModelId = '',
+  onChangeLocalModel,
+  onLoadLocalModel,
+  streamingReply,
 }) => {
   const [selectedTarget, setSelectedTarget] = useState<'triad' | 'Alex' | 'Astyria' | 'Aurelius'>('triad');
   const [inputMessage, setInputMessage] = useState('');
@@ -388,10 +481,28 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 text-slate-400 text-[11px]">
-            <span className="hidden sm:inline-flex items-center gap-1 font-mono text-[10px] text-emerald-400 bg-emerald-950/70 border border-emerald-800/50 px-2 py-0.5 rounded">
-              <Sigma className="w-3 h-3 text-emerald-400" />
-              RDZEŃ WITHOUT_NLP: AKTYWNY
-            </span>
+            {onChangeEngine && (
+              <div className="inline-flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800" role="group" aria-label="Silnik rozmowy">
+                <span className="px-1 text-slate-500">Silnik:</span>
+                {([['cloud', 'Chmura'], ['local', 'Lokalny']] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onChangeEngine(key)}
+                    aria-pressed={chatEngine === key}
+                    className={`px-2 py-0.5 rounded cursor-pointer transition ${
+                      chatEngine === key
+                        ? key === 'local'
+                          ? 'bg-violet-900/70 text-violet-200 border border-violet-700/60'
+                          : 'bg-emerald-950 text-emerald-300 border border-emerald-800/50'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <span>Wiadomości: {dataStore.chat_history.length}</span>
             {onTriggerInitiative && (
               <button
@@ -462,8 +573,19 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2 text-slate-300 p-3 bg-slate-900/70 rounded-lg border border-slate-800">
               <div className="flex items-center gap-2">
                 <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
-                <span className="text-xs">Przetwarzanie transmisji przez węzły (Alex, Astyria, Aurelius)...</span>
+                <span className="text-xs">
+                  {streamingReply
+                    ? `${streamingReply.agent} pisze (model lokalny)…`
+                    : chatEngine === 'local'
+                    ? 'Lokalny model przygotowuje odpowiedź…'
+                    : 'Czekam na odpowiedź modelu AI…'}
+                </span>
               </div>
+              {streamingReply?.text && (
+                <div className="w-full whitespace-pre-wrap text-xs text-slate-200 border-t border-slate-800 pt-2">
+                  {streamingReply.text}
+                </div>
+              )}
               {onForceSync && (
                 <button
                   onClick={onForceSync}
@@ -477,6 +599,16 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
 
           <div ref={chatBottomRef} />
         </div>
+
+        {chatEngine === 'local' && localEngine && (
+          <LocalEnginePanel
+            state={localEngine}
+            models={localModels}
+            modelId={localModelId}
+            onChangeModel={onChangeLocalModel}
+            onLoad={onLoadLocalModel}
+          />
+        )}
 
         {/* Quick Prompts */}
         <div className="bg-slate-950 border-t border-slate-800 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto text-[11px] scrollbar-none">

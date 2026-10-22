@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, Suspense, lazy, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy, memo, useSyncExternalStore } from 'react';
 import {
   DataStore,
   INITIAL_DATA_STORE,
@@ -12,6 +12,32 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemHealthDock } from './components/SystemHealthDock';
 import { usePolling } from './hooks/usePolling';
 import { fetchJsonIfChanged, invalidateEtag } from './utils/fetchJson';
+import {
+  DEFAULT_LOCAL_MODEL_ID,
+  LOCAL_MODELS,
+  buildAgentConversation,
+  generateLocalReply,
+  getLocalEngineState,
+  isLocalEngineReady,
+  loadLocalEngine,
+  subscribeLocalEngine,
+} from './lib/localEngine';
+
+export type ChatEngine = 'cloud' | 'local';
+const ENGINE_KEY = 'svl_chat_engine_v1';
+const LOCAL_MODEL_KEY = 'svl_local_model_v1';
+const readPref = (key: string, fallback: string) => {
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+};
+const writePref = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+};
 
 const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_5_3_pure_hyperos';
 const STATE_URL = '/api/kernel/state';
@@ -133,6 +159,31 @@ export default function App() {
   isAgentLoadingRef.current = isAgentLoading;
   const [showReportModal, setShowReportModal] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  // --- Silnik rozmowy: chmura (Gemini na serwerze) albo lokalny model w przeglądarce ---
+  const [chatEngine, setChatEngineState] = useState<ChatEngine>(() =>
+    readPref(ENGINE_KEY, 'cloud') === 'local' ? 'local' : 'cloud'
+  );
+  const [localModelId, setLocalModelIdState] = useState<string>(() => {
+    const saved = readPref(LOCAL_MODEL_KEY, DEFAULT_LOCAL_MODEL_ID);
+    return LOCAL_MODELS.some((m) => m.id === saved) ? saved : DEFAULT_LOCAL_MODEL_ID;
+  });
+  const localEngine = useSyncExternalStore(subscribeLocalEngine, getLocalEngineState);
+  const [streamingReply, setStreamingReply] = useState<{ agent: string; text: string } | null>(null);
+  const dataStoreRef = useRef(dataStore);
+  dataStoreRef.current = dataStore;
+
+  const setChatEngine = useCallback((engine: ChatEngine) => {
+    setChatEngineState(engine);
+    writePref(ENGINE_KEY, engine);
+  }, []);
+  const setLocalModelId = useCallback((id: string) => {
+    setLocalModelIdState(id);
+    writePref(LOCAL_MODEL_KEY, id);
+  }, []);
+  const handleLoadLocalModel = useCallback(() => {
+    loadLocalEngine(localModelId);
+  }, [localModelId]);
 
   // Expose navigation to window for internal component linking
   useEffect(() => {
@@ -258,9 +309,102 @@ export default function App() {
     }));
   }, [setDataStore]);
 
+  // ---------------------------------------------------------------------------
+  // Rozmowa z lokalnym modelem: odpowiedzi powstają w przeglądarce, serwer tylko je zapisuje
+  // ---------------------------------------------------------------------------
+  const handleLocalSend = useCallback(async (agentName: string, messageText: string, fileData?: any) => {
+    if (!isLocalEngineReady()) {
+      setSendError('Lokalny model nie jest jeszcze uruchomiony — pobierz go przyciskiem nad polem wiadomości albo przełącz silnik na „Chmura”.');
+      return;
+    }
+    const text = messageText.trim();
+    const operatorText = text || (fileData ? `[Przesłano załącznik: ${fileData.name}]` : '');
+    let prompt = operatorText;
+    if (fileData?.textContent) {
+      prompt += `\n\n[Treść załączonego pliku ${fileData.name}]:\n${String(fileData.textContent).slice(0, 4000)}`;
+    } else if (fileData) {
+      prompt += `\n\n(Tata załączył plik ${fileData.name}; lokalny model nie widzi obrazów ani plików binarnych.)`;
+    }
+
+    const history = (dataStoreRef.current.chat_history || []).map((m) => ({ agent: m.agent, tekst: m.tekst }));
+    const operatorMsg: any = {
+      agent: OPERATOR_NAME,
+      tekst: operatorText,
+      file: fileData
+        ? { name: fileData.name, type: fileData.type, size: fileData.size, dataUrl: fileData.dataUrl, textContent: fileData.textContent }
+        : undefined,
+    };
+    setDataStore((prev) => ({ ...prev, chat_history: [...(prev.chat_history || []), operatorMsg] }));
+    setIsAgentLoading(true);
+    isAgentLoadingRef.current = true;
+    setSendError(null);
+
+    const modelId = getLocalEngineState().modelId || localModelId;
+    const agents = agentName === 'triad' ? ['Alex', 'Astyria', 'Aurelius'] : [agentName];
+    const produced: Array<{ agent: string; tekst: string; zrodlo: string }> = [];
+    const failed: string[] = [];
+    let failReason = '';
+
+    try {
+      for (const agent of agents) {
+        setStreamingReply({ agent, text: '' });
+        try {
+          const reply = await generateLocalReply(buildAgentConversation(agent, history, OPERATOR_NAME, prompt), {
+            onToken: (t) => setStreamingReply({ agent, text: t }),
+          });
+          if (!reply) throw new Error('model zwrócił pustą odpowiedź');
+          const entry = { agent, tekst: reply, zrodlo: `lokalny:${modelId}` };
+          produced.push(entry);
+          appendReplies([entry]);
+        } catch (e: any) {
+          failed.push(agent);
+          failReason = failReason || e?.message || 'błąd lokalnego modelu';
+        }
+      }
+      setStreamingReply(null);
+      if (failed.length) {
+        const notice = {
+          agent: 'System',
+          tekst: `⚠️ Brak odpowiedzi: lokalny model nie odpowiedział (${failed.join(', ')}). Powód: ${failReason}.`,
+          zrodlo: 'blad',
+        };
+        produced.push(notice);
+        appendReplies([notice]);
+      }
+
+      // Utrwalenie rozmowy w DATA_STORE (serwer niczego tu nie generuje)
+      const res = await fetch('/api/kernel/append-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ agent: OPERATOR_NAME, tekst: operatorText }, ...produced] }),
+      });
+      if (!res.ok) throw new Error(`zapis na serwerze: HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.state?.store) {
+        const serverStore = normalizeDataStore(data.state.store);
+        if (operatorMsg.file) {
+          for (let i = serverStore.chat_history.length - 1; i >= 0; i--) {
+            if (serverStore.chat_history[i].agent === OPERATOR_NAME && !serverStore.chat_history[i].file) {
+              serverStore.chat_history[i].file = operatorMsg.file;
+              break;
+            }
+          }
+        }
+        setDataStore(serverStore);
+      }
+    } catch (e: any) {
+      setSendError(`Odpowiedzi lokalnego modelu są widoczne, ale nie zapisały się na serwerze (${e?.message || e}).`);
+    } finally {
+      setStreamingReply(null);
+      setIsAgentLoading(false);
+      isAgentLoadingRef.current = false;
+    }
+  }, [setDataStore, appendReplies, localModelId]);
+
   // Handle sending message from Tata to Agent, with optional file attachment
   const handleSendMessage = useCallback(async (agentName: string, messageText: string, fileData?: any) => {
     if (!messageText.trim() && !fileData) return;
+    if (chatEngine === 'local') return handleLocalSend(agentName, messageText, fileData);
 
     const fileRecord = fileData
       ? {
@@ -348,7 +492,7 @@ export default function App() {
       setIsAgentLoading(false);
       isAgentLoadingRef.current = false;
     }
-  }, [setDataStore, appendReplies, fetchServerStore]);
+  }, [setDataStore, appendReplies, fetchServerStore, chatEngine, handleLocalSend]);
 
   const handleClearHistory = useCallback(async () => {
     const baseline = [
@@ -411,6 +555,14 @@ export default function App() {
             isLoading={isAgentLoading}
             onClearHistory={handleClearHistory}
             onForceSync={handleForceSync}
+            chatEngine={chatEngine}
+            onChangeEngine={setChatEngine}
+            localEngine={localEngine}
+            localModels={LOCAL_MODELS}
+            localModelId={localModelId}
+            onChangeLocalModel={setLocalModelId}
+            onLoadLocalModel={handleLoadLocalModel}
+            streamingReply={streamingReply}
           />
         );
       case 'process_matrix':

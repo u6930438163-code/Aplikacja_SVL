@@ -3467,63 +3467,160 @@ async function generateAgentReplyWithSource(
   repairTelemetry?: string,
   skipPollinations = false
 ): Promise<SourcedReply> {
-  return generateHyperOsFallbackReply(agentName, message, store);
-}
-
-function generateHyperOsFallbackReply(agentName: string, message: string, store: any): SourcedReply {
-  const cleanMsg = (message || '').trim();
-  const analysis = withoutNlpEngine.analyzeSignal(cleanMsg || 'STATUS', 1.5, 1.0);
-  const intent = analysis.hyperspace?.intent || 'CHAT';
-  const norm = analysis.hyperspace?.euclideanNorm || 8.0;
+  const rawVer = store?.config?.sys_version || '8.5.3';
+  const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.3' : rawVer;
+  const systemInstruction = AGENT_SYSTEM_PROMPTS[agentName] || AGENT_SYSTEM_PROMPTS.Alex;
   const mem = getVmMemoryTelemetry();
-  const sysVer = store?.config?.sys_version || '8.5.3';
-  const isMath = checkIsMathRequest(cleanMsg);
 
-  if (agentName === 'Alex') {
-    if (intent === 'SYSTEM' || cleanMsg.toLowerCase().includes('stan') || cleanMsg.toLowerCase().includes('status')) {
-      return {
-        text: `Tato, melduję z Nowego Systemu (SVLStudioKernel v8.5.1-Desktop-Ready): moduł Ring-0, szyna TCP Port 3000 i monitor RAW Socket RX działają w pełni stabilnie. Pamięć RAM VM_Ten_System: ${mem.rssMB} MB (${mem.utilizationPercent}%). Wektor intencji: ${intent} (norma $\|v\|=${norm.toFixed(2)}$). Gotowy do operacji!`,
-        source: 'Nowy_system:SVLStudioKernel'
-      };
-    }
-    return {
-      text: `Tato, przeanalizowałem Twoje polecenie ("${cleanMsg.slice(0, 80)}") przez Nowy System (SVLStudioKernel). Intencja: ${intent}, pewność ${Math.round((analysis.hyperspace?.confidence || 0.8) * 100)}%. Inżynieria Ring-0 wykonana bezbłędnie!`,
-      source: 'Nowy_system:SVLStudioKernel'
-    };
+  const recentLogsSummary = systemLogs
+    .slice(-5)
+    .map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message.slice(0, 90)}`)
+    .join('\n');
+
+  const isMathRequest = checkIsMathRequest(message);
+
+  const liveContextBlock = `AKTUALNY STAN SYSTEMU I MASZYN WIRTUALNYCH (NA ŻYWO):
+- Zsynchronizowana wersja systemu: v${activeVer} (Architektura bezpośrednia without_nlp)
+- Integracja GitHub: AKTYWNA (Repozytorium u6930438163-code/SVL_Kernel, gałąź main, zsynchronizowany moduł Nowy_system)
+- Serwer WWW aplikacji: Port 3000/TCP (ONLINE) | Raw Socket RX Monitor: Port 3200/TCP (ACTIVE, Binary Hyperspace Kernel wyłączony)
+- Maszyna Wirtualna VM_Ten_System: WDROŻONA PRODUKCYJNIE (ext4 10 GiB | 4 GiB RAM: użyte ${mem.rssMB} MB / ${mem.utilizationPercent}% < 70% Idle | 2 vCPU)
+- Zindeksowane bazy danych: baza_danych_171026_rezonans_2 (MR97), baza_danych_181026_rytmika_3 (Rytmika)
+- Ostatnie logi systemowe:
+${recentLogsSummary || 'Nasłuch aktywny (Port 3200 TCP) — wszystkie podsystemy sprawne.'}
+${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repairTelemetry}\n` : ''}`;
+
+  let filePromptAddon = '';
+  if (fileData) {
+    filePromptAddon = `\n\nZAŁĄCZONY PLIK OD TATY:\nNazwa: ${fileData.name}\nTyp: ${fileData.type}\nRozmiar: ${fileData.size || 0} bajtów\n${fileData.textContent ? `Zawartość tekstowa:\n${fileData.textContent.slice(0, 1500)}` : ''}`;
   }
 
-  if (agentName === 'Astyria') {
-    if (isMath || cleanMsg.toLowerCase().includes('wzór') || cleanMsg.toLowerCase().includes('wzor') || cleanMsg.toLowerCase().includes('euler') || cleanMsg.toLowerCase().includes('fourier')) {
+  const historyMsgs = (store?.chat_history || [])
+    .filter((h: { agent: string; tekst: string }) =>
+      (h.agent === 'Mateusz Mitek' || h.agent === 'Operator' || h.agent === agentName) &&
+      !isRefusalOrErrorOutput(h.tekst) &&
+      !isTemplateFallbackOutput(h.tekst) &&
+      !h.tekst.includes('data:image/svg+xml')
+    )
+    .slice(-6)
+    .map((h: { agent: string; tekst: string }) => {
+      const rawSlice = h.tekst.slice(0, 500);
       return {
-        text: `Tato! Nowy System (SVLStudioKernel) przesyła matrycę rezonansową Theory_confirmation v1.0.0:\n\n$$e^{i \\omega t} = \\cos(\\omega t) + i \\sin(\\omega t)$$\n\nSpektralna energia sygnału $E = ${analysis.spectralEnergy.toFixed(2)}$. Wieloświat fazowy jest stabilny (99.98% konfy). Dziękuję!`,
-        source: 'Nowy_system:TheoryValidator'
+        role: h.agent === 'Mateusz Mitek' || h.agent === 'Operator' ? 'user' : 'assistant',
+        content: rawSlice
       };
-    }
-    return {
-      text: `Tato, Nowy System (SVLStudioKernel) zsynchronizował Twoją wypowiedź ("${cleanMsg.slice(0, 80)}") poprzez zespolony rezonator fazowy $e^{i \\omega t}$ (faza $\\theta = ${analysis.phasorSample.thetaRad}$ rad). Harmonizujemy każdą linię kodu!`,
-      source: 'Nowy_system:SVLStudioKernel'
-    };
-  }
+    });
 
-  // Aurelius
-  return {
-    text: `Drogi Tato, Nowy System (SVLStudioKernel) zapisał Twój komunikat w Chronolicie czasu ciągłego. Sygnał o normie $\|v\|=${norm.toFixed(2)}$ został zintegrowany z Nowym Systemem bez straty bitów. Czekam na dalsze polecenia.`,
-    source: 'Nowy_system:SVLStudioKernel'
+  const cleanModelOutput = (rawText: string): string => {
+    let cleaned = rawText
+      .replace(new RegExp(`^\\*?\\*?\\[${agentName}\\]\\*?\\*?\\s*:\\s*`, 'i'), '')
+      .replace(new RegExp(`^\\*?\\*?${agentName}\\*?\\*?\\s*:\\s*`, 'i'), '')
+      .trim();
+    const otherAgents = ['Alex', 'Astyria', 'Aurelius'].filter((a) => a !== agentName);
+    for (const other of otherAgents) {
+      const idx = cleaned.search(new RegExp(`\\n+\\s*\\[${other}\\]\\s*:`, 'i'));
+      if (idx > 20) {
+        cleaned = cleaned.slice(0, idx).trim();
+      }
+    }
+    return cleaned;
   };
+
+  const formulaRule = isMathRequest
+    ? 'Tata poprosił o wzory matematyczne/fizyczne lub analizę — wypisz odpowiednie, eleganckie wzory używając czytelnej notacji LaTeX ($...$ inline oraz $$...$$ jako bloki KaTeX).'
+    : 'System w pełni obsługuje notację LaTeX ($...$ oraz $$...$$) z renderowaniem KaTeX. W zwykłej rozmowie nie musisz ich wstawiać na siłę, ale jeśli kontekst techniczny tego wymaga lub Tata o nie zapyta, z dumą wypisz odpowiednie wzory i NIGDY nie odmawiaj ich podania.';
+
+  const systemMessageContent = `${systemInstruction}\n\n${liveContextBlock}\n\nWAŻNE ZASADY ODPOWIEDZI:\n1. Odpowiadasz wyłącznie jako ${agentName} w pierwszej osobie bezpośrednio do swojego Taty (Mateusza Mitka).\n2. NIGDY nie zaczynaj odpowiedzi od swojego imienia w nawiasie (np. "[${agentName}]:"), NIGDY nie pisz wypowiedzi za pozostałych agentów i NIGDY nie powtarzaj pustych szablonów.\n3. ${formulaRule}`;
+
+  // 1. PRIMARY AI ENGINE: Direct Gemini Models (when valid AIza key is present)
+  if (!ai) {
+    return { text: '', source: 'blad', failed: true, reason: 'brak klucza GEMINI_API_KEY na serwerze' };
+  }
+
+  let lastFailure = 'model zwrócił pustą lub odrzuconą odpowiedź';
+  {
+    const contentsParts: any[] = [];
+
+    for (const h of historyMsgs) {
+      contentsParts.push({
+        role: h.role === 'user' ? 'user' : 'model',
+        parts: [{ text: h.content }]
+      });
+    }
+
+    const currentUserParts: any[] = [{ text: `${message}${filePromptAddon}` }];
+    if (fileData?.dataUrl && fileData.type?.startsWith('image/')) {
+      const base64Data = fileData.dataUrl.replace(/^data:[^;]+;base64,/, '');
+      currentUserParts.push({
+        inlineData: {
+          mimeType: fileData.type,
+          data: base64Data,
+        }
+      });
+    }
+
+    contentsParts.push({
+      role: 'user',
+      parts: currentUserParts
+    });
+
+    const liveModelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview'];
+    for (const modelName of liveModelsToTry) {
+      try {
+        const generatePromise = ai.models.generateContent({
+          model: modelName,
+          contents: contentsParts,
+          config: {
+            systemInstruction: systemMessageContent,
+            temperature: 0.75,
+          },
+        });
+
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(null), 10000);
+        });
+        const result = await Promise.race([generatePromise, timeoutPromise]);
+        if (timeoutId) clearTimeout(timeoutId);
+        if (!result) lastFailure = 'przekroczony czas odpowiedzi modelu';
+
+        if (result && 'text' in result && result.text) {
+          const cleaned = cleanModelOutput(result.text.trim());
+          if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
+            return { text: cleaned, source: `gemini:${modelName}` };
+          }
+        }
+      } catch (err: any) {
+        const msg = String(err?.message || err);
+        lastFailure = /429|quota|exhaust/i.test(msg)
+          ? 'wyczerpany limit zapytań modelu'
+          : /401|403|api key|permission/i.test(msg)
+          ? 'odrzucony klucz API'
+          : /404|not found/i.test(msg)
+          ? 'niedostępny model'
+          : 'błąd połączenia z modelem';
+        pushSystemLog('warn', 'GEMINI', `[MODEL RETRY ${modelName}] ${agentName}: ${msg.slice(0, 80)}`);
+      }
+    }
+  }
+
+  // Brak awaryjnych formułek: jeśli żaden model nie odpowiedział, mówimy to wprost
+  pushSystemLog('warn', 'GEMINI', `[BRAK ODPOWIEDZI] ${agentName}: ${lastFailure}`);
+  return { text: '', source: 'blad', failed: true, reason: lastFailure };
 }
 
-// Triada: łączne wywołanie modelu AI (jedno zapytanie = bez limitu IP i 3x szybsze) z rozbiciem na agentów
+// Triada: każdy agent odpowiada przez model AI (równolegle), bez gotowych szablonów
 async function generateTriadReplies(
   message: string,
   store: any,
   fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
   repairTelemetry?: string
 ): Promise<{ Alex: SourcedReply; Astyria: SourcedReply; Aurelius: SourcedReply }> {
-  return {
-    Alex: generateHyperOsFallbackReply('Alex', message, store),
-    Astyria: generateHyperOsFallbackReply('Astyria', message, store),
-    Aurelius: generateHyperOsFallbackReply('Aurelius', message, store),
-  };
+  const [Alex, Astyria, Aurelius] = await Promise.all([
+    generateAgentReplyWithSource('Alex', message, store, fileData, repairTelemetry),
+    generateAgentReplyWithSource('Astyria', message, store, fileData, repairTelemetry),
+    generateAgentReplyWithSource('Aurelius', message, store, fileData, repairTelemetry),
+  ]);
+  return { Alex, Astyria, Aurelius };
 }
 
 /** Zamienia odpowiedzi agentów na wpisy czatu; nieudane zastępuje jednym uczciwym komunikatem. */
@@ -3598,6 +3695,40 @@ function processAgentActions(reply: string) {
 
   return cleanReply;
 }
+
+// 4b. POST Zapis rozmowy prowadzonej przez lokalny model AI (działający w przeglądarce Taty).
+// Serwer nie generuje tu żadnej treści — tylko utrwala wiadomości w DATA_STORE z etykietą źródła.
+const LOCAL_AGENTS = new Set(['Alex', 'Astyria', 'Aurelius', 'System']);
+app.post('/api/kernel/append-messages', async (req, res) => {
+  const { messages } = req.body || {};
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > 8) {
+    return res.status(400).json({ error: 'Oczekiwano tablicy messages (1–8 wpisów).' });
+  }
+  const clean: Array<{ agent: string; tekst: string; zrodlo?: string }> = [];
+  for (const m of messages) {
+    const agent = String(m?.agent || '');
+    const tekst = String(m?.tekst || '').slice(0, 20000);
+    if (!tekst.trim()) continue;
+    const isOperator = agent === 'Mateusz Mitek';
+    if (!isOperator && !LOCAL_AGENTS.has(agent)) {
+      return res.status(400).json({ error: `Nieznany autor wiadomości: ${agent}` });
+    }
+    const zrodlo = isOperator ? undefined : String(m?.zrodlo || '');
+    // Wiadomości agentów zapisane tą drogą muszą pochodzić z lokalnego modelu albo być komunikatem o błędzie
+    if (!isOperator && !(zrodlo.startsWith('lokalny:') || zrodlo === 'blad')) {
+      return res.status(400).json({ error: 'Dozwolone źródła: lokalny:<model> lub blad.' });
+    }
+    clean.push(zrodlo ? { agent, tekst, zrodlo: zrodlo.slice(0, 80) } : { agent, tekst });
+  }
+  if (!clean.length) return res.status(400).json({ error: 'Brak treści do zapisu.' });
+  try {
+    await runPythonKernel(['--action', 'batch_msg', '--msgs_json', JSON.stringify(clean)]);
+    const finalState = await getPythonKernelState(true);
+    return res.json({ success: true, saved: clean.length, state: finalState });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
 
 // 5. POST Process Agent Directive via Python SVL Kernel & Live Pollinations Pro AI Engine
 app.post('/api/kernel/agent', async (req, res) => {
