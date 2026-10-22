@@ -92,7 +92,7 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
     const model = zrodlo.split(':')[1] || 'openai';
     return {
       label: `model AI · ${model}`,
-      title: 'Odpowiedź wygenerowana na żywo przez model językowy OpenAI.',
+      title: 'Odpowiedź wygenerowana na żywo przez model językowy (API Pollinations, zgodne z OpenAI).',
       className: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
     };
   }
@@ -110,11 +110,11 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
       className: 'bg-rose-950/60 text-rose-300 border-rose-800/60',
     };
   }
-  if (zrodlo === 'without_nlp:hyperos_128bit' || zrodlo.startsWith('without_nlp:hyperos')) {
+  if (zrodlo.startsWith('without_nlp:hyperos') || zrodlo.startsWith('Nowy_system')) {
     return {
-      label: 'HyperOS · 128-bit',
-      title: 'Deterministyczna synteza bez NLP w 128-bitowej binarnej hiperprzestrzeni (odległość Hamminga + Euler/Fourier).',
-      className: 'bg-cyan-950/70 text-cyan-300 border-cyan-700/60',
+      label: 'szablon (bez modelu)',
+      title: 'Gotowy tekst z kodu serwera (dawny „HyperOS / Nowy System”) — nie wygenerował go żaden model; mechanizm usunięty.',
+      className: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
     };
   }
   if (zrodlo.startsWith('without_nlp')) {

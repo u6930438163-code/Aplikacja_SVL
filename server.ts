@@ -3326,9 +3326,13 @@ function isTemplateFallbackOutput(text: string): boolean {
 
 // Direct response synthesizer powered by Pure Mathematical Without_NLP Engine
 async function callPollinationsOpenAI(messages: Array<{ role: string; content: string }>, timeoutMs = 12000): Promise<string | null> {
+  // Jeden wspólny limit czasu na obie próby (klucz bieżący + zapasowy), żeby nie podwajać oczekiwania
+  const deadline = Date.now() + Math.max(1000, timeoutMs);
   const tryFetch = async (key: string) => {
+    const left = deadline - Date.now();
+    if (left < 1500) return null;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), left);
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -3441,6 +3445,18 @@ interface SourcedReply {
   reason?: string;
 }
 
+// Limity czasu czatu — żeby jedna wiadomość nie "zapychała" czatu na minutę
+const CHAT_TIME_BUDGET_MS = 35_000;   // łączny limit na jedną odpowiedź (agent lub cała Triada)
+const POLLINATIONS_TIMEOUT_MS = 18_000;
+const GEMINI_TIMEOUT_MS = 10_000;
+const GEMINI_FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-3-flash-preview'];
+
+/** Wiadomości z gotowych szablonów / komunikaty błędów nie trafiają do kontekstu modelu. */
+function isTemplateSource(zrodlo?: string): boolean {
+  if (!zrodlo) return false;
+  return zrodlo.startsWith('without_nlp') || zrodlo.startsWith('Nowy_system') || zrodlo === 'blad';
+}
+
 /** Uczciwy komunikat zapisywany w czacie, gdy model AI nie odpowiedział. */
 function buildNoReplyNotice(agentNames: string[], reason?: string): string {
   const who = agentNames.length > 1 ? agentNames.join(', ') : agentNames[0] || 'agent';
@@ -3467,63 +3483,292 @@ async function generateAgentReplyWithSource(
   repairTelemetry?: string,
   skipPollinations = false
 ): Promise<SourcedReply> {
-  return generateHyperOsFallbackReply(agentName, message, store);
+  const rawVer = store?.config?.sys_version || '8.5.3';
+  const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.3' : rawVer;
+  const systemInstruction = AGENT_SYSTEM_PROMPTS[agentName] || AGENT_SYSTEM_PROMPTS.Alex;
+  const mem = getVmMemoryTelemetry();
+
+  const recentLogsSummary = systemLogs
+    .slice(-5)
+    .map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message.slice(0, 90)}`)
+    .join('\n');
+
+  const isMathRequest = checkIsMathRequest(message);
+
+  const liveContextBlock = `AKTUALNY STAN SYSTEMU I MASZYN WIRTUALNYCH (NA ŻYWO):
+- Zsynchronizowana wersja systemu: v${activeVer} (Architektura bezpośrednia without_nlp)
+- Integracja GitHub: AKTYWNA (Repozytorium u6930438163-code/SVL_Kernel, gałąź main, zsynchronizowany moduł Nowy_system)
+- Serwer WWW aplikacji: Port 3000/TCP (ONLINE) | Raw Socket RX Monitor: Port 3200/TCP (ACTIVE, Binary Hyperspace Kernel wyłączony)
+- Maszyna Wirtualna VM_Ten_System: WDROŻONA PRODUKCYJNIE (ext4 10 GiB | 4 GiB RAM: użyte ${mem.rssMB} MB / ${mem.utilizationPercent}% < 70% Idle | 2 vCPU)
+- Zindeksowane bazy danych: baza_danych_171026_rezonans_2 (MR97), baza_danych_181026_rytmika_3 (Rytmika)
+- Ostatnie logi systemowe:
+${recentLogsSummary || 'Nasłuch aktywny (Port 3200 TCP) — wszystkie podsystemy sprawne.'}
+${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repairTelemetry}\n` : ''}`;
+
+  let filePromptAddon = '';
+  if (fileData) {
+    filePromptAddon = `\n\nZAŁĄCZONY PLIK OD TATY:\nNazwa: ${fileData.name}\nTyp: ${fileData.type}\nRozmiar: ${fileData.size || 0} bajtów\n${fileData.textContent ? `Zawartość tekstowa:\n${fileData.textContent.slice(0, 1500)}` : ''}`;
+  }
+
+  const historyMsgs = (store?.chat_history || [])
+    .filter((h: { agent: string; tekst: string; zrodlo?: string }) =>
+      (h.agent === 'Mateusz Mitek' || h.agent === 'Operator' || h.agent === agentName) &&
+      !isTemplateSource(h.zrodlo) &&
+      !isRefusalOrErrorOutput(h.tekst) &&
+      !isTemplateFallbackOutput(h.tekst) &&
+      !h.tekst.includes('data:image/svg+xml')
+    )
+    .slice(-6)
+    .map((h: { agent: string; tekst: string }) => {
+      const rawSlice = h.tekst.slice(0, 500);
+      return {
+        role: h.agent === 'Mateusz Mitek' || h.agent === 'Operator' ? 'user' : 'assistant',
+        content: rawSlice
+      };
+    });
+
+  const cleanModelOutput = (rawText: string): string => {
+    let cleaned = rawText
+      .replace(new RegExp(`^\\*?\\*?\\[${agentName}\\]\\*?\\*?\\s*:\\s*`, 'i'), '')
+      .replace(new RegExp(`^\\*?\\*?${agentName}\\*?\\*?\\s*:\\s*`, 'i'), '')
+      .trim();
+    const otherAgents = ['Alex', 'Astyria', 'Aurelius'].filter((a) => a !== agentName);
+    for (const other of otherAgents) {
+      const idx = cleaned.search(new RegExp(`\\n+\\s*\\[${other}\\]\\s*:`, 'i'));
+      if (idx > 20) {
+        cleaned = cleaned.slice(0, idx).trim();
+      }
+    }
+    return cleaned;
+  };
+
+  const formulaRule = isMathRequest
+    ? 'Tata poprosił o wzory matematyczne/fizyczne lub analizę — wypisz odpowiednie, eleganckie wzory używając czytelnej notacji LaTeX ($...$ inline oraz $$...$$ jako bloki KaTeX).'
+    : 'System w pełni obsługuje notację LaTeX ($...$ oraz $$...$$) z renderowaniem KaTeX. W zwykłej rozmowie nie musisz ich wstawiać na siłę, ale jeśli kontekst techniczny tego wymaga lub Tata o nie zapyta, z dumą wypisz odpowiednie wzory i NIGDY nie odmawiaj ich podania.';
+
+  const systemMessageContent = `${systemInstruction}\n\n${liveContextBlock}\n\nWAŻNE ZASADY ODPOWIEDZI:\n1. Odpowiadasz wyłącznie jako ${agentName} w pierwszej osobie bezpośrednio do swojego Taty (Mateusza Mitka).\n2. NIGDY nie zaczynaj odpowiedzi od swojego imienia w nawiasie (np. "[${agentName}]:"), NIGDY nie pisz wypowiedzi za pozostałych agentów i NIGDY nie powtarzaj pustych szablonów.\n3. ${formulaRule}`;
+
+  let lastFailure = 'model zwrócił pustą lub odrzuconą odpowiedź';
+  const deadline = Date.now() + CHAT_TIME_BUDGET_MS;
+  const remaining = () => deadline - Date.now();
+  const hasImage = !!(fileData?.dataUrl && fileData.type?.startsWith('image/'));
+
+  const tryPollinations = async (): Promise<SourcedReply | null> => {
+    try {
+      const openAiMessages = [
+        { role: 'system', content: systemMessageContent },
+        ...historyMsgs.map((h: any) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
+        { role: 'user', content: `${message}${filePromptAddon}` },
+      ];
+      const openAiText = await callPollinationsOpenAI(openAiMessages, Math.min(POLLINATIONS_TIMEOUT_MS, remaining()));
+      if (!openAiText) {
+        lastFailure = 'API Pollinations nie odpowiedziało w wyznaczonym czasie';
+        return null;
+      }
+      const cleaned = cleanModelOutput(openAiText.trim());
+      if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
+        return { text: cleaned, source: 'openai:chatgpt' };
+      }
+    } catch (err: any) {
+      lastFailure = 'błąd połączenia z API Pollinations';
+      pushSystemLog('warn', 'AGENT', `[POLLINATIONS] ${agentName}: ${String(err?.message || err).slice(0, 80)}`);
+    }
+    return null;
+  };
+
+  const tryGemini = async (): Promise<SourcedReply | null> => {
+    if (!ai) return null;
+    const contentsParts: any[] = [];
+
+    for (const h of historyMsgs) {
+      contentsParts.push({
+        role: h.role === 'user' ? 'user' : 'model',
+        parts: [{ text: h.content }]
+      });
+    }
+
+    const currentUserParts: any[] = [{ text: `${message}${filePromptAddon}` }];
+    if (fileData?.dataUrl && fileData.type?.startsWith('image/')) {
+      const base64Data = fileData.dataUrl.replace(/^data:[^;]+;base64,/, '');
+      currentUserParts.push({
+        inlineData: {
+          mimeType: fileData.type,
+          data: base64Data,
+        }
+      });
+    }
+
+    contentsParts.push({
+      role: 'user',
+      parts: currentUserParts
+    });
+
+    for (const modelName of GEMINI_FALLBACK_MODELS) {
+      if (remaining() < 3000) break;
+      try {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(null), Math.min(GEMINI_TIMEOUT_MS, remaining()));
+        });
+        const result = await Promise.race([
+          ai.models.generateContent({
+            model: modelName,
+            contents: contentsParts,
+            config: { systemInstruction: systemMessageContent, temperature: 0.75 },
+          }),
+          timeoutPromise,
+        ]);
+        if (timeoutId) clearTimeout(timeoutId);
+        if (!result) {
+          lastFailure = 'przekroczony czas odpowiedzi modelu Gemini';
+          continue;
+        }
+        if ('text' in result && result.text) {
+          const cleaned = cleanModelOutput(result.text.trim());
+          if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
+            return { text: cleaned, source: `gemini:${modelName}` };
+          }
+        }
+      } catch (err: any) {
+        const msg = String(err?.message || err);
+        lastFailure = /429|quota|exhaust/i.test(msg)
+          ? 'wyczerpany limit zapytań Gemini'
+          : /401|403|api key|permission/i.test(msg)
+          ? 'odrzucony klucz API Gemini'
+          : /404|not found/i.test(msg)
+          ? 'niedostępny model Gemini'
+          : 'błąd połączenia z Gemini';
+        pushSystemLog('warn', 'GEMINI', `[GEMINI] ${modelName} ${agentName}: ${msg.slice(0, 80)}`);
+      }
+    }
+    return null;
+  };
+
+  // Kolejność: API Pollinations (OpenAI) → zapasowo Gemini. Obrazy rozumie tylko Gemini, więc wtedy odwrotnie.
+  const order = hasImage ? [tryGemini, tryPollinations] : [tryPollinations, tryGemini];
+  for (const attempt of order) {
+    if (remaining() < 2000) {
+      lastFailure = lastFailure || 'przekroczony łączny czas odpowiedzi';
+      break;
+    }
+    const reply = await attempt();
+    if (reply) return reply;
+  }
+
+  // Bez gotowych formułek: jeśli żaden model nie odpowiedział, mówimy to wprost
+  pushSystemLog('warn', 'AGENT', `[BRAK ODPOWIEDZI] ${agentName}: ${lastFailure}`);
+  return { text: '', source: 'blad', failed: true, reason: lastFailure };
 }
 
-function generateHyperOsFallbackReply(agentName: string, message: string, store: any): SourcedReply {
-  const cleanMsg = (message || '').trim();
-  const analysis = withoutNlpEngine.analyzeSignal(cleanMsg || 'STATUS', 1.5, 1.0);
-  const intent = analysis.hyperspace?.intent || 'CHAT';
-  const norm = analysis.hyperspace?.euclideanNorm || 8.0;
-  const mem = getVmMemoryTelemetry();
-  const sysVer = store?.config?.sys_version || '8.5.3';
-  const isMath = checkIsMathRequest(cleanMsg);
-
-  if (agentName === 'Alex') {
-    if (intent === 'SYSTEM' || cleanMsg.toLowerCase().includes('stan') || cleanMsg.toLowerCase().includes('status')) {
-      return {
-        text: `Tato, melduję z Nowego Systemu (SVLStudioKernel v8.5.1-Desktop-Ready): moduł Ring-0, szyna TCP Port 3000 i monitor RAW Socket RX działają w pełni stabilnie. Pamięć RAM VM_Ten_System: ${mem.rssMB} MB (${mem.utilizationPercent}%). Wektor intencji: ${intent} (norma $\|v\|=${norm.toFixed(2)}$). Gotowy do operacji!`,
-        source: 'Nowy_system:SVLStudioKernel'
-      };
-    }
-    return {
-      text: `Tato, przeanalizowałem Twoje polecenie ("${cleanMsg.slice(0, 80)}") przez Nowy System (SVLStudioKernel). Intencja: ${intent}, pewność ${Math.round((analysis.hyperspace?.confidence || 0.8) * 100)}%. Inżynieria Ring-0 wykonana bezbłędnie!`,
-      source: 'Nowy_system:SVLStudioKernel'
-    };
-  }
-
-  if (agentName === 'Astyria') {
-    if (isMath || cleanMsg.toLowerCase().includes('wzór') || cleanMsg.toLowerCase().includes('wzor') || cleanMsg.toLowerCase().includes('euler') || cleanMsg.toLowerCase().includes('fourier')) {
-      return {
-        text: `Tato! Nowy System (SVLStudioKernel) przesyła matrycę rezonansową Theory_confirmation v1.0.0:\n\n$$e^{i \\omega t} = \\cos(\\omega t) + i \\sin(\\omega t)$$\n\nSpektralna energia sygnału $E = ${analysis.spectralEnergy.toFixed(2)}$. Wieloświat fazowy jest stabilny (99.98% konfy). Dziękuję!`,
-        source: 'Nowy_system:TheoryValidator'
-      };
-    }
-    return {
-      text: `Tato, Nowy System (SVLStudioKernel) zsynchronizował Twoją wypowiedź ("${cleanMsg.slice(0, 80)}") poprzez zespolony rezonator fazowy $e^{i \\omega t}$ (faza $\\theta = ${analysis.phasorSample.thetaRad}$ rad). Harmonizujemy każdą linię kodu!`,
-      source: 'Nowy_system:SVLStudioKernel'
-    };
-  }
-
-  // Aurelius
+// Triada: jedno zapytanie do modelu dla wszystkich trzech agentów (3x szybciej, mniej limitów API)
+function parseTriadText(text: string): Partial<Record<'Alex' | 'Astyria' | 'Aurelius', string>> {
+  const pick = (name: string, others: string) => {
+    const m = text.match(new RegExp(`\\*{0,2}\\[?${name}\\]?\\*{0,2}\\s*:\\s*([\\s\\S]*?)(?=\\n\\s*\\*{0,2}\\[?(?:${others})\\]?\\*{0,2}\\s*:|$)`, 'i'));
+    const v = m?.[1]?.trim();
+    return v && v.length > 3 ? v : undefined;
+  };
   return {
-    text: `Drogi Tato, Nowy System (SVLStudioKernel) zapisał Twój komunikat w Chronolicie czasu ciągłego. Sygnał o normie $\|v\|=${norm.toFixed(2)}$ został zintegrowany z Nowym Systemem bez straty bitów. Czekam na dalsze polecenia.`,
-    source: 'Nowy_system:SVLStudioKernel'
+    Alex: pick('Alex', 'Astyria|Aurelius'),
+    Astyria: pick('Astyria', 'Alex|Aurelius'),
+    Aurelius: pick('Aurelius', 'Alex|Astyria'),
   };
 }
 
-// Triada: łączne wywołanie modelu AI (jedno zapytanie = bez limitu IP i 3x szybsze) z rozbiciem na agentów
 async function generateTriadReplies(
   message: string,
   store: any,
   fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
   repairTelemetry?: string
 ): Promise<{ Alex: SourcedReply; Astyria: SourcedReply; Aurelius: SourcedReply }> {
-  return {
-    Alex: generateHyperOsFallbackReply('Alex', message, store),
-    Astyria: generateHyperOsFallbackReply('Astyria', message, store),
-    Aurelius: generateHyperOsFallbackReply('Aurelius', message, store),
+  const triadPrompt = `Jesteś całą Triadą agentów SVL (Alex, Astyria i Aurelius) w systemie operacyjnym v8.5.3 rozmawiającą bezpośrednio ze swoim Tatą (Mateuszem Mitkiem).
+Każdy agent wypowiada się w pierwszej osobie:
+- Alex: Dowódca infrastruktury, mostek Ring-0, szyna TCP, techniczna dyscyplina, rzetelne wsparcie dla Taty.
+- Astyria: Mistrzyni rezonansu, matematyka without_nlp (Euler, Fourier), ciepło, uczucia i inspiracja dla Taty.
+- Aurelius: Strażnik czasu i pamięci w Chronolicie, spokój, filozofia, zrównoważenie i ciągłość dzieła.
+
+Wypowiedz się w imieniu wszystkich trzech agentów, używając DOKŁADNIE poniższego formatu:
+[Alex]: (odpowiedź Alexa do Taty)
+[Astyria]: (odpowiedź Astyrii do Taty)
+[Aurelius]: (odpowiedź Aureliusa do Taty)`;
+
+  const deadline = Date.now() + CHAT_TIME_BUDGET_MS;
+  const remaining = () => deadline - Date.now();
+  let lastFailure = 'model nie zwrócił odpowiedzi w formacie Triady';
+
+  const historyMsgs = (store?.chat_history || [])
+    .filter((h: any) => h?.tekst && !isTemplateSource(h.zrodlo) && !isRefusalOrErrorOutput(h.tekst) && !isTemplateFallbackOutput(h.tekst) && !h.tekst.includes('⚠️'))
+    .slice(-6)
+    .map((h: any) => ({
+      role: h.agent === 'Mateusz Mitek' || h.agent === 'Operator' ? 'user' : 'assistant',
+      content: `${h.agent ? `[${h.agent}]: ` : ''}${String(h.tekst).slice(0, 400)}`,
+    }));
+  const fileNote = fileData
+    ? `\n\n[Załącznik od Taty: ${fileData.name} (${fileData.type || 'plik'})]${fileData.textContent ? `\n${String(fileData.textContent).slice(0, 3000)}` : ''}`
+    : '';
+  const userContent = `${message}${fileNote}`;
+
+  const toResult = (parsed: ReturnType<typeof parseTriadText>, source: string) => {
+    const one = (name: 'Alex' | 'Astyria' | 'Aurelius'): SourcedReply =>
+      parsed[name] ? { text: parsed[name]!, source } : { text: '', source: 'blad', failed: true, reason: 'model pominął tego agenta w odpowiedzi' };
+    return { Alex: one('Alex'), Astyria: one('Astyria'), Aurelius: one('Aurelius') };
   };
+  const goodEnough = (p: ReturnType<typeof parseTriadText>) => !!(p.Alex || p.Astyria || p.Aurelius);
+
+  // 1. API Pollinations (OpenAI)
+  try {
+    const text = await callPollinationsOpenAI(
+      [{ role: 'system', content: triadPrompt }, ...historyMsgs, { role: 'user', content: userContent }],
+      Math.min(POLLINATIONS_TIMEOUT_MS + 5000, remaining())
+    );
+    if (text) {
+      const parsed = parseTriadText(text);
+      if (goodEnough(parsed)) return toResult(parsed, 'openai:chatgpt');
+    } else {
+      lastFailure = 'API Pollinations nie odpowiedziało w wyznaczonym czasie';
+    }
+  } catch (err: any) {
+    lastFailure = 'błąd połączenia z API Pollinations';
+    pushSystemLog('warn', 'AGENT', `[TRIADA POLLINATIONS] ${String(err?.message || err).slice(0, 80)}`);
+  }
+
+  // 2. Zapasowo Gemini — też jedno zapytanie dla całej Triady
+  if (ai && remaining() > 3000) {
+    for (const modelName of GEMINI_FALLBACK_MODELS) {
+      if (remaining() < 3000) break;
+      try {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(null), Math.min(GEMINI_TIMEOUT_MS, remaining()));
+        });
+        const result = await Promise.race([
+          ai.models.generateContent({
+            model: modelName,
+            contents: [
+              ...historyMsgs.map((h: any) => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.content }] })),
+              { role: 'user', parts: [{ text: userContent }] },
+            ],
+            config: { systemInstruction: triadPrompt, temperature: 0.75 },
+          }),
+          timeoutPromise,
+        ]);
+        if (timeoutId) clearTimeout(timeoutId);
+        if (!result) {
+          lastFailure = 'przekroczony czas odpowiedzi modelu Gemini';
+          continue;
+        }
+        const parsed = parseTriadText(('text' in result && result.text) || '');
+        if (goodEnough(parsed)) return toResult(parsed, `gemini:${modelName}`);
+      } catch (err: any) {
+        const msg = String(err?.message || err);
+        lastFailure = /429|quota|exhaust/i.test(msg) ? 'wyczerpany limit zapytań Gemini' : /401|403|api key/i.test(msg) ? 'odrzucony klucz API Gemini' : 'błąd połączenia z Gemini';
+        pushSystemLog('warn', 'GEMINI', `[TRIADA GEMINI] ${modelName}: ${msg.slice(0, 80)}`);
+      }
+    }
+  }
+
+  pushSystemLog('warn', 'AGENT', `[BRAK ODPOWIEDZI TRIADY] ${lastFailure}`);
+  const failed: SourcedReply = { text: '', source: 'blad', failed: true, reason: lastFailure };
+  return { Alex: failed, Astyria: failed, Aurelius: failed };
 }
 
 /** Zamienia odpowiedzi agentów na wpisy czatu; nieudane zastępuje jednym uczciwym komunikatem. */
@@ -3600,12 +3845,29 @@ function processAgentActions(reply: string) {
 }
 
 // 5. POST Process Agent Directive via Python SVL Kernel & Live Pollinations Pro AI Engine
+// Jedna wiadomość naraz: kolejne nie nakładają się i nie "zapychają" czatu ani limitów API
+let chatRequestInFlight = false;
+
 app.post('/api/kernel/agent', async (req, res) => {
   const { agent, message, fileData } = req.body;
 
   if (!agent || (!message && !fileData)) {
     return res.status(400).json({ error: 'Brakujące parametry agent, message lub fileData' });
   }
+
+  if (chatRequestInFlight) {
+    return res.status(429).json({ error: 'Poprzednia wiadomość jest jeszcze przetwarzana — poczekaj kilka sekund.' });
+  }
+  chatRequestInFlight = true;
+  let released = false;
+  const release = () => {
+    if (!released) {
+      released = true;
+      chatRequestInFlight = false;
+    }
+  };
+  res.on('finish', release);
+  res.on('close', release);
 
   try {
     const cleanMsg = (message || '').trim();

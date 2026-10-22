@@ -288,7 +288,8 @@ export default function App() {
     setSendError(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    // Serwer ma łączny limit 35 s na odpowiedź; 50 s tutaj to zapas na zapis do jądra
+    const timeoutId = setTimeout(() => controller.abort(), 50000);
 
     try {
       const res = await fetch('/api/kernel/agent', {
@@ -341,7 +342,7 @@ export default function App() {
       }
 
       // Bez gotowych formułek: mówimy wprost, że odpowiedź nie dotarła
-      const reason = err?.name === 'AbortError' ? 'serwer nie odpowiedział w ciągu 90 s' : err?.message || 'błąd połączenia';
+      const reason = err?.name === 'AbortError' ? 'serwer nie odpowiedział w ciągu 50 s' : err?.message || 'błąd połączenia';
       setSendError(`Nie udało się uzyskać odpowiedzi od ${agentName === 'triad' ? 'Triady' : agentName} (${reason}). Spróbuj ponownie.`);
     } finally {
       clearTimeout(timeoutId);
