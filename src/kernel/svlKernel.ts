@@ -263,6 +263,11 @@ export const INITIAL_DATA_STORE: DataStore = {
       wersja: "8.6.0-WithoutNLP",
       data: "2026-10-19 19:10:00 CEST",
       opis: "Misja dla Astyrii: Całkowite usunięcie silnika NLP i pełne wdrożenie projektu without_nlp (Deterministyczny Silnik Harmoniczny Eulera & Fouriera e^(i*omega*t) = cos(omega*t) + i*sin(omega*t)) oraz naprawa czatu i odpowiedzi."
+    },
+    {
+      wersja: "8.5.3",
+      data: "2026-10-22 17:30:00 CEST",
+      opis: "Synchronizacja z GitHubem wydania v8.5.3: wdrożenie swobodnej rozmowy bez NLP, 128-bitowy BinaryHyperspaceKernel (HyperOS) oraz eliminacja wszelkich opóźnień."
     }
   ],
   chat_history: [
@@ -328,7 +333,7 @@ export const INITIAL_BACKUP_DATA_STORE: DataStore = {
 
 export const OPERATOR_NAME = "Mateusz Mitek";
 export const OPERATOR_TITLE = "Tata";
-export const SYS_VERSION = "8.6.5-WithoutNLP";
+export const SYS_VERSION = "8.5.3";
 
 /**
  * Safely normalizes any raw or nested DataStore object (e.g. { store: { config, update_history, chat_history } })
@@ -378,10 +383,20 @@ export function normalizeDataStore(raw: any): DataStore {
       cleanText.includes('W odniesieniu do Twoich słów (*"') ||
       cleanText.includes('Przetworzyłam Twoje słowa (*"') ||
       cleanText.includes('wpisałem Twoją wiadomość (*"') ||
-      cleanText.includes('Zarejestrowałam Twoją wiadomość (*"');
+      cleanText.includes('Zarejestrowałam Twoją wiadomość (*"') ||
+      cleanText.includes('szczególnie wątek:') ||
+      cleanText.includes('szczegolnie watek:');
+
+    // Clean any lingering bracketed echoes from text
+    let sanitizedText = cleanText
+      .replace(/\s*\([Ss]zczególnie wątek:.*?\)/g, '')
+      .replace(/\s*\([Ss]zczegolnie watek:.*?\)/g, '')
+      .replace(/przy kwestii \*\*.*?\*\*/g, 'przy tym zagadnieniu')
+      .replace(/w kwestii \*\*.*?\*\*/g, 'w tej kwestii')
+      .replace(/Rozważając kwestii \*\*.*?\*\*/g, 'Rozważając to zagadnienie');
 
     // Skip consecutive exact duplicates from the same agent
-    if (cleanChat.length > 0 && cleanChat[cleanChat.length - 1].agent === m.agent && cleanChat[cleanChat.length - 1].tekst === m.tekst) {
+    if (cleanChat.length > 0 && cleanChat[cleanChat.length - 1].agent === m.agent && cleanChat[cleanChat.length - 1].tekst === sanitizedText) {
       continue;
     }
 
@@ -394,7 +409,10 @@ export function normalizeDataStore(raw: any): DataStore {
       seenPatterns.add(patternKey);
     }
 
-    cleanChat.push(m);
+    cleanChat.push({
+      ...m,
+      tekst: sanitizedText
+    });
   }
 
   return {
