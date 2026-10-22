@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import {
   Play,
   Pause,
@@ -142,13 +143,7 @@ export const MissionTrackerCard: React.FC<MissionTrackerCardProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (showLogs) {
-      fetchInfraLogs();
-      const interval = setInterval(fetchInfraLogs, 3200);
-      return () => clearInterval(interval);
-    }
-  }, [showLogs]);
+  usePolling(fetchInfraLogs, 3200, { enabled: showLogs });
 
   // Total initial seconds calculation
   const totalInitialSeconds = defaultStages.reduce((acc, s) => acc + s.durationSeconds, 0);

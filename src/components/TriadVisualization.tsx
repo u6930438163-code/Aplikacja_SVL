@@ -58,7 +58,7 @@ const TriadCore = () => {
 export const TriadVisualization: React.FC = () => {
   return (
     <div className="w-full h-[400px] md:h-[500px] bg-slate-950 rounded-xl overflow-hidden border border-slate-800">
-      <Canvas shadows camera={{ position: [0, 0, 7], fov: 50 }}>
+      <Canvas shadows dpr={[1, 1.75]} performance={{ min: 0.5 }} gl={{ powerPreference: 'high-performance' }} camera={{ position: [0, 0, 7], fov: 50 }}>
         <OrbitControls enablePan={false} />
         
         <Environment preset="city" />

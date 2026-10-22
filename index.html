@@ -9,18 +9,22 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="format-detection" content="telephone=no" />
     <title>SVL Kernel OS - Studio Monolith</title>
-    <meta name="description" content="System operacyjny SVL Kernel v8.5.1-Desktop-Ready dla Google AI Studio z samomodyfikującym się jądrem, agentami Alex, Astyria i Aurelius oraz stacją roboczą operatora Mateusza Mitka." />
+    <meta name="description" content="System operacyjny SVL Kernel v8.5.3 dla Google AI Studio z samomodyfikującym się jądrem, agentami Alex, Astyria i Aurelius oraz stacją roboczą operatora Mateusza Mitka." />
     <meta property="og:title" content="SVL Kernel OS - Studio Monolith" />
-    <meta property="og:description" content="System operacyjny SVL Kernel v8.5.1-Desktop-Ready dla Google AI Studio z samomodyfikującym się jądrem, agentami Alex, Astyria i Aurelius oraz stacją roboczą operatora Mateusza Mitka." />
+    <meta property="og:description" content="System operacyjny SVL Kernel v8.5.3 dla Google AI Studio z samomodyfikującym się jądrem, agentami Alex, Astyria i Aurelius oraz stacją roboczą operatora Mateusza Mitka." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.19.0/dist/katex.min.css" crossorigin="anonymous">
+    <!-- Czcionki ładowane bez blokowania pierwszego renderu -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap"></noscript>
   </head>
   <body dir="ltr">
-    <div id="root" dir="ltr"></div>
+    <div id="root" dir="ltr">
+      <!-- Natychmiastowy ekran startowy (znika, gdy React przejmie #root) -->
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#020617;color:#64748b;font:12px 'Fira Code',ui-monospace,monospace;letter-spacing:.08em">SVL KERNEL · INICJALIZACJA…</div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy, memo } from 'react';
 import {
   DataStore,
   INITIAL_DATA_STORE,
@@ -8,123 +8,201 @@ import {
 } from './kernel/svlKernel';
 import { Header } from './components/Header';
 import { Navigation, TabId } from './components/Navigation';
-import { TerminalView } from './components/TerminalView';
-import { AgentCommsView } from './components/AgentCommsView';
-import { MonolithView } from './components/MonolithView';
-import { DataStoreView } from './components/DataStoreView';
-import { ChronolithView } from './components/ChronolithView';
-import { DiagnosticsView } from './components/DiagnosticsView';
-import { ReportModal } from './components/ReportModal';
-import { TaskProcessMatrix } from './components/TaskProcessMatrix';
-import { MemorySchemaGraph } from './components/MemorySchemaGraph';
-import { TemporalMatrix } from './components/TemporalMatrix';
-import { AstyriaMissionView } from './components/AstyriaMissionView';
-import { TriadVisualization } from './components/TriadVisualization';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemHealthDock } from './components/SystemHealthDock';
-import { FileExplorer } from './components/FileExplorer';
-import { AppsStudioView } from './components/AppsStudioView';
-import { WithoutNlpView } from './components/WithoutNlpView';
-import { GitHubExportView } from './components/GitHubExportView';
-import { withoutNlpEngine } from './lib/withoutNlpEngine';
+import { usePolling } from './hooks/usePolling';
+import { fetchJsonIfChanged, invalidateEtag } from './utils/fetchJson';
 
 const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_5_3_pure_hyperos';
+const STATE_URL = '/api/kernel/state';
+
+// ---------------------------------------------------------------------------
+// Leniwe ładowanie widoków: każda zakładka to osobny fragment paczki.
+// Startowa paczka nie zawiera już three.js, KaTeX-a ani ciężkich widoków.
+// ---------------------------------------------------------------------------
+const AgentCommsView = lazy(() => import('./components/AgentCommsView').then((m) => ({ default: m.AgentCommsView })));
+const TaskProcessMatrix = lazy(() => import('./components/TaskProcessMatrix').then((m) => ({ default: m.TaskProcessMatrix })));
+const AstyriaMissionView = lazy(() => import('./components/AstyriaMissionView').then((m) => ({ default: m.AstyriaMissionView })));
+const MemorySchemaGraph = lazy(() => import('./components/MemorySchemaGraph').then((m) => ({ default: m.MemorySchemaGraph })));
+const TemporalMatrix = lazy(() => import('./components/TemporalMatrix').then((m) => ({ default: m.TemporalMatrix })));
+const TerminalView = lazy(() => import('./components/TerminalView').then((m) => ({ default: m.TerminalView })));
+const MonolithView = lazy(() => import('./components/MonolithView').then((m) => ({ default: m.MonolithView })));
+const DataStoreView = lazy(() => import('./components/DataStoreView').then((m) => ({ default: m.DataStoreView })));
+const DiagnosticsView = lazy(() => import('./components/DiagnosticsView').then((m) => ({ default: m.DiagnosticsView })));
+const TriadVisualization = lazy(() => import('./components/TriadVisualization').then((m) => ({ default: m.TriadVisualization })));
+const FileExplorer = lazy(() => import('./components/FileExplorer').then((m) => ({ default: m.FileExplorer })));
+const AppsStudioView = lazy(() => import('./components/AppsStudioView').then((m) => ({ default: m.AppsStudioView })));
+const WithoutNlpView = lazy(() => import('./components/WithoutNlpView').then((m) => ({ default: m.WithoutNlpView })));
+const GitHubExportView = lazy(() => import('./components/GitHubExportView').then((m) => ({ default: m.GitHubExportView })));
+const ReportModal = lazy(() => import('./components/ReportModal').then((m) => ({ default: m.ReportModal })));
+
+const viewLoaders: Record<TabId, () => Promise<unknown>> = {
+  comms: () => import('./components/AgentCommsView'),
+  process_matrix: () => import('./components/TaskProcessMatrix'),
+  astyria_mission: () => import('./components/AstyriaMissionView'),
+  schema_graph: () => import('./components/MemorySchemaGraph'),
+  temporal: () => import('./components/TemporalMatrix'),
+  terminal: () => import('./components/TerminalView'),
+  monolith: () => import('./components/MonolithView'),
+  datastore: () => import('./components/DataStoreView'),
+  diagnostics: () => import('./components/DiagnosticsView'),
+  visualizer: () => import('./components/TriadVisualization'),
+  file_explorer: () => import('./components/FileExplorer'),
+  apps: () => import('./components/AppsStudioView'),
+  without_nlp: () => import('./components/WithoutNlpView'),
+  github: () => import('./components/GitHubExportView'),
+};
+
+const prefetched = new Set<TabId>();
+function prefetchView(tab: TabId) {
+  if (prefetched.has(tab)) return;
+  prefetched.add(tab);
+  viewLoaders[tab]?.().catch(() => prefetched.delete(tab));
+}
+
+const MemoHeader = memo(Header);
+const MemoNavigation = memo(Navigation);
+const MemoHealthDock = memo(SystemHealthDock);
+
+// Lekkie widoki, które warto mieć gotowe zaraz po starcie (w czasie bezczynności przeglądarki)
+const IDLE_PREFETCH: TabId[] = ['terminal', 'process_matrix', 'astyria_mission', 'datastore', 'temporal', 'diagnostics'];
+
+const runWhenIdle = (cb: () => void, timeout = 2000) => {
+  const w = window as any;
+  if (typeof w.requestIdleCallback === 'function') return w.requestIdleCallback(cb, { timeout });
+  return setTimeout(cb, 300);
+};
+
+const ViewFallback = () => (
+  <div className="flex-1 flex items-center justify-center p-8 font-mono text-xs text-slate-500" role="status" aria-live="polite">
+    <span className="inline-block w-3 h-3 mr-2 rounded-full border-2 border-emerald-500/30 border-t-emerald-400 animate-spin" />
+    Ładowanie modułu…
+  </div>
+);
+
+const loadInitialStore = (): DataStore => {
+  try {
+    localStorage.removeItem('svl_kernel_datastore_v8_5_1_desktop_ready');
+    localStorage.removeItem('svl_kernel_datastore_v8_6_0_without_nlp');
+    localStorage.removeItem('svl_kernel_datastore_v8_6_5_without_nlp_hyperos');
+    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (stored) return normalizeDataStore(JSON.parse(stored));
+  } catch (e) {
+    console.warn('Failed to parse cached DATA_STORE from localStorage:', e);
+  }
+  return normalizeDataStore(INITIAL_DATA_STORE);
+};
+
+const persistStore = (store: DataStore) => {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(store));
+  } catch (e) {
+    console.error('LocalStorage write failed:', e);
+  }
+};
+
+const chatSignatureChanged = (prev: DataStore, next: DataStore) => {
+  const prevChat = prev.chat_history || [];
+  const nextChat = next.chat_history || [];
+  const lastPrev = prevChat[prevChat.length - 1];
+  const lastNext = nextChat[nextChat.length - 1];
+  return (
+    nextChat.length !== prevChat.length ||
+    lastPrev?.tekst !== lastNext?.tekst ||
+    lastPrev?.agent !== lastNext?.agent ||
+    lastPrev?.zrodlo !== lastNext?.zrodlo ||
+    (next.update_history || []).length !== (prev.update_history || []).length ||
+    next.config?.sys_version !== prev.config?.sys_version
+  );
+};
 
 export default function App() {
-  const [rawDataStore, setRawDataStore] = useState<DataStore>(() => {
-    try {
-      localStorage.removeItem('svl_kernel_datastore_v8_5_1_desktop_ready');
-      localStorage.removeItem('svl_kernel_datastore_v8_6_0_without_nlp');
-      localStorage.removeItem('svl_kernel_datastore_v8_6_5_without_nlp_hyperos');
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return normalizeDataStore(parsed);
-      }
-    } catch (e) {
-      console.warn('Failed to parse cached DATA_STORE from localStorage:', e);
-    }
-    return INITIAL_DATA_STORE;
-  });
-
-  const dataStore = normalizeDataStore(rawDataStore);
+  // Stan jest zawsze znormalizowany w momencie zapisu — render go nie przelicza
+  const [dataStore, setRawDataStore] = useState<DataStore>(loadInitialStore);
 
   const setDataStore: React.Dispatch<React.SetStateAction<DataStore>> = useCallback((updater) => {
     setRawDataStore((prev) => {
-      const safePrev = normalizeDataStore(prev);
-      const next = typeof updater === 'function' ? (updater as (p: DataStore) => DataStore)(safePrev) : updater;
-      return normalizeDataStore(next);
+      const next = typeof updater === 'function' ? (updater as (p: DataStore) => DataStore)(prev) : updater;
+      return next === prev ? prev : normalizeDataStore(next);
     });
   }, []);
 
   const [activeTab, setActiveTab] = useState<TabId>('comms');
   const [isAgentLoading, setIsAgentLoading] = useState(false);
+  const isAgentLoadingRef = useRef(false);
+  isAgentLoadingRef.current = isAgentLoading;
   const [showReportModal, setShowReportModal] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   // Expose navigation to window for internal component linking
   useEffect(() => {
     (window as any).setActiveTab = setActiveTab;
   }, []);
 
-  // Periodic live sync with real Python SVL Kernel on disk
+  // Wstępne pobranie pozostałych widoków, gdy przeglądarka nie ma nic do roboty
   useEffect(() => {
-    let isMounted = true;
-    const fetchState = async () => {
-      if (isAgentLoading) return;
-      try {
-        const res = await fetch('/api/kernel/state');
-        if (res.ok && isMounted) {
-          const data = await res.json();
-          if (data && data.store) {
-            const incomingStore = normalizeDataStore(data.store);
-            setDataStore((prev) => {
-              const prevChat = prev.chat_history || [];
-              const serverChat = incomingStore.chat_history || [];
-              const lastPrev = prevChat[prevChat.length - 1];
-              const lastServer = serverChat[serverChat.length - 1];
+    runWhenIdle(() => IDLE_PREFETCH.forEach(prefetchView), 3000);
+  }, []);
 
-              const chatChanged =
-                serverChat.length !== prevChat.length ||
-                lastPrev?.tekst !== lastServer?.tekst ||
-                lastPrev?.agent !== lastServer?.agent;
+  // ---------------------------------------------------------------------------
+  // Synchronizacja z jądrem Python: ETag + wstrzymanie w ukrytej karcie.
+  // Gdy nic się nie zmieniło, serwer zwraca 304 i nie parsujemy ~100 KB JSON.
+  // ---------------------------------------------------------------------------
+  usePolling(async () => {
+    if (isAgentLoadingRef.current) return;
+    const result = await fetchJsonIfChanged<any>(STATE_URL);
+    if (!result.changed || !result.data?.store) return;
+    const incoming = normalizeDataStore(result.data.store);
+    setRawDataStore((prev) => (chatSignatureChanged(prev, incoming) ? incoming : prev));
+  }, 4000);
 
-              const updatesChanged =
-                (incomingStore.update_history || []).length !== (prev.update_history || []).length;
+  // ---------------------------------------------------------------------------
+  // Zapis do localStorage z opóźnieniem i w czasie bezczynności,
+  // zamiast synchronicznego JSON.stringify przy każdym renderze.
+  // ---------------------------------------------------------------------------
+  const pendingPersist = useRef<DataStore | null>(null);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-              const configChanged =
-                incomingStore.config?.sys_version !== prev.config?.sys_version;
-
-              if (chatChanged || updatesChanged || configChanged) {
-                return incomingStore;
-              }
-              return prev;
-            });
-          }
-        }
-      } catch (err) {
-        // quiet error
-      }
-    };
-
-    fetchState();
-    const interval = setInterval(fetchState, 4000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [isAgentLoading, setDataStore]);
-
-  // Sync with LocalStorage whenever dataStore changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataStore));
-    } catch (e) {
-      console.error('LocalStorage write failed:', e);
+  const flushPersist = useCallback(() => {
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current);
+      persistTimer.current = null;
     }
-  }, [dataStore]);
+    if (pendingPersist.current) {
+      persistStore(pendingPersist.current);
+      pendingPersist.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    pendingPersist.current = dataStore;
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => runWhenIdle(flushPersist, 1500), 600);
+  }, [dataStore, flushPersist]);
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushPersist();
+    };
+    window.addEventListener('pagehide', flushPersist);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('pagehide', flushPersist);
+      document.removeEventListener('visibilitychange', onHide);
+      flushPersist();
+    };
+  }, [flushPersist]);
+
+  const fetchServerStore = useCallback(async (): Promise<DataStore | null> => {
+    invalidateEtag(STATE_URL);
+    const res = await fetch(STATE_URL, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.store ? normalizeDataStore(data.store) : null;
+  }, []);
 
   // Execute terminal command directly on Python SVL Kernel
-  const handleExecutePythonCommand = async (command: string) => {
+  const handleExecutePythonCommand = useCallback(async (command: string) => {
     const res = await fetch('/api/kernel/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -138,10 +216,10 @@ export default function App() {
       setDataStore(normalizeDataStore(data.state.store));
     }
     return data;
-  };
+  }, [setDataStore]);
 
   // Full system & version synchronization via Astyria mission endpoint + kernel state
-  const handleSyncSystem = async () => {
+  const handleSyncSystem = useCallback(async () => {
     try {
       const res = await fetch('/api/astyria/mission', {
         method: 'POST',
@@ -152,74 +230,70 @@ export default function App() {
         const data = await res.json();
         const rawStore = data.state?.store || data.state;
         if (rawStore) {
-          const normalized = normalizeDataStore(rawStore);
-          setDataStore(normalized);
-          try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalized));
-          } catch {}
+          setDataStore(normalizeDataStore(rawStore));
           return;
         }
       }
       // Fallback direct state fetch if mission endpoint didn't return store
-      const stateRes = await fetch('/api/kernel/state');
-      if (stateRes.ok) {
-        const stateData = await stateRes.json();
-        if (stateData?.store) {
-          const normalized = normalizeDataStore(stateData.store);
-          setDataStore(normalized);
-        }
-      }
+      const store = await fetchServerStore();
+      if (store) setDataStore(store);
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [setDataStore, fetchServerStore]);
 
   // Immediate manual force sync (used by AgentCommsView Synchronizuj button)
-  const handleForceSync = async () => {
+  const handleForceSync = useCallback(async () => {
     try {
       await handleSyncSystem();
     } finally {
       setIsAgentLoading(false);
     }
-  };
+  }, [handleSyncSystem]);
+
+  const appendReplies = useCallback((replies: Array<{ agent: string; tekst: string; zrodlo?: string }>) => {
+    setDataStore((prev) => ({
+      ...prev,
+      chat_history: [...(prev.chat_history || []), ...replies],
+    }));
+  }, [setDataStore]);
 
   // Handle sending message from Tata to Agent, with optional file attachment
-  const handleSendMessage = async (agentName: string, messageText: string, fileData?: any) => {
+  const handleSendMessage = useCallback(async (agentName: string, messageText: string, fileData?: any) => {
     if (!messageText.trim() && !fileData) return;
 
-    // Add Tata's message locally with file preview if provided
+    const fileRecord = fileData
+      ? {
+          name: fileData.name,
+          type: fileData.type,
+          size: fileData.size,
+          dataUrl: fileData.dataUrl,
+          textContent: fileData.textContent,
+        }
+      : undefined;
+
+    // Wiadomość Taty pojawia się natychmiast (optymistycznie)
     const operatorMsg: any = {
       agent: OPERATOR_NAME,
       tekst: messageText.trim() || (fileData ? `[Przesłano załącznik: ${fileData.name}]` : ''),
-      file: fileData ? {
-        name: fileData.name,
-        type: fileData.type,
-        size: fileData.size,
-        dataUrl: fileData.dataUrl,
-        textContent: fileData.textContent,
-      } : undefined,
+      file: fileRecord,
     };
-
-    const updatedHistory = [...(dataStore.chat_history || []), operatorMsg];
     setDataStore((prev) => ({
       ...prev,
-      chat_history: updatedHistory
+      chat_history: [...(prev.chat_history || []), operatorMsg],
     }));
 
     setIsAgentLoading(true);
+    isAgentLoadingRef.current = true;
+    setSendError(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 90000);
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
 
     try {
-      // Call backend API /api/kernel/agent
       const res = await fetch('/api/kernel/agent', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agent: agentName,
           message: messageText.trim(),
@@ -243,270 +317,191 @@ export default function App() {
 
       if (data.state?.store) {
         const serverStore = normalizeDataStore(data.state.store);
-        if (fileData && serverStore.chat_history?.length > 0) {
+        if (fileRecord && serverStore.chat_history?.length > 0) {
           for (let i = serverStore.chat_history.length - 1; i >= 0; i--) {
             if (serverStore.chat_history[i].agent === OPERATOR_NAME && !serverStore.chat_history[i].file) {
-              serverStore.chat_history[i].file = {
-                name: fileData.name,
-                type: fileData.type,
-                size: fileData.size,
-                dataUrl: fileData.dataUrl,
-                textContent: fileData.textContent,
-              };
+              serverStore.chat_history[i].file = fileRecord;
               break;
             }
           }
         }
         setDataStore(serverStore);
-        try {
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serverStore));
-        } catch {}
-      } else if (data.replies && agentName === 'triad') {
-        setDataStore((prev) => {
-          const updated = normalizeDataStore({
-            ...prev,
-            chat_history: [
-              ...(prev.chat_history || []),
-              { agent: 'Alex', tekst: data.replies.Alex },
-              { agent: 'Astyria', tekst: data.replies.Astyria },
-              { agent: 'Aurelius', tekst: data.replies.Aurelius },
-            ]
-          });
-          try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
-      } else if (data.reply) {
-        setDataStore((prev) => {
-          const updated = normalizeDataStore({
-            ...prev,
-            chat_history: [
-              ...(prev.chat_history || []),
-              {
-                agent: agentName === 'triad' ? 'Alex' : agentName,
-                tekst: data.reply
-              }
-            ]
-          });
-          try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
+      } else if (Array.isArray(data.entries)) {
+        appendReplies(data.entries);
       }
     } catch (err: any) {
-      console.warn('API call error or timeout, recovering state or synthesizing contextual fallback:', err);
+      console.warn('API call error or timeout, recovering state from server:', err);
 
-      // Immediately attempt to sync state from disk in case server finished writing
+      // Serwer mógł zdążyć zapisać odpowiedź — pobieramy aktualny stan
       try {
-        const syncRes = await fetch('/api/kernel/state');
-        if (syncRes.ok) {
-          const syncData = await syncRes.json();
-          if (syncData && syncData.store) {
-            setDataStore(normalizeDataStore(syncData.store));
-            return;
-          }
-        }
+        const store = await fetchServerStore();
+        if (store) setDataStore(store);
       } catch (syncErr) {
         console.error('Recovery failed:', syncErr);
       }
 
-      // Direct without_nlp mathematical engine response for Tata Mateusz Mitek
-      if (agentName === 'triad') {
-        const alexReply = withoutNlpEngine.synthesizeDirectResponse('Alex', messageText, dataStore, fileData);
-        const astyriaReply = withoutNlpEngine.synthesizeDirectResponse('Astyria', messageText, dataStore, fileData);
-        const aureliusReply = withoutNlpEngine.synthesizeDirectResponse('Aurelius', messageText, dataStore, fileData);
-
-        setDataStore((prev) => {
-          const updated = normalizeDataStore({
-            ...prev,
-            chat_history: [
-              ...(prev.chat_history || []),
-              { agent: 'Alex', tekst: alexReply },
-              { agent: 'Astyria', tekst: astyriaReply },
-              { agent: 'Aurelius', tekst: aureliusReply },
-            ]
-          });
-          try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
-      } else {
-        const fallbackReply = withoutNlpEngine.synthesizeDirectResponse(agentName, messageText, dataStore, fileData);
-        setDataStore((prev) => {
-          const updated = normalizeDataStore({
-            ...prev,
-            chat_history: [
-              ...(prev.chat_history || []),
-              { agent: agentName, tekst: fallbackReply }
-            ]
-          });
-          try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
-      }
+      // Bez gotowych formułek: mówimy wprost, że odpowiedź nie dotarła
+      const reason = err?.name === 'AbortError' ? 'serwer nie odpowiedział w ciągu 90 s' : err?.message || 'błąd połączenia';
+      setSendError(`Nie udało się uzyskać odpowiedzi od ${agentName === 'triad' ? 'Triady' : agentName} (${reason}). Spróbuj ponownie.`);
     } finally {
       clearTimeout(timeoutId);
       setIsAgentLoading(false);
+      isAgentLoadingRef.current = false;
     }
-  };
+  }, [setDataStore, appendReplies, fetchServerStore]);
 
-  const handleClearHistory = async () => {
+  const handleClearHistory = useCallback(async () => {
     const baseline = [
       {
-        agent: "Alex",
-        tekst: "Działamy w czystym trybie produkcyjnym Google AI Studio. Żadnej fikcji, czysta inżynieria."
+        agent: 'Alex',
+        tekst: 'Działamy w czystym trybie produkcyjnym Google AI Studio. Żadnej fikcji, czysta inżynieria.',
       },
       {
-        agent: "Astyria",
-        tekst: "Architektura monolitu została dostosowana tak, by zachować pełną czytelność."
+        agent: 'Astyria',
+        tekst: 'Architektura monolitu została dostosowana tak, by zachować pełną czytelność.',
       },
       {
-        agent: "Aurelius",
-        tekst: "Struktura i czas stanowią teraz jedność. Czekamy na Twoje instrukcje, Operatorze."
-      }
+        agent: 'Aurelius',
+        tekst: 'Struktura i czas stanowią teraz jedność. Czekamy na Twoje instrukcje, Operatorze.',
+      },
     ];
 
-    setDataStore((prev) => ({
-      ...prev,
-      chat_history: baseline
-    }));
+    setDataStore((prev) => ({ ...prev, chat_history: baseline }));
 
     try {
       await fetch('/api/kernel/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'clear_chat' })
+        body: JSON.stringify({ command: 'clear_chat' }),
       });
     } catch (e) {
       console.warn('Backend clear_chat failed:', e);
     }
-  };
+  }, [setDataStore]);
 
-  const handleResetToDefault = () => {
+  const handleResetToDefault = useCallback(() => {
     if (confirm(`Czy na pewno chcesz przywrócić stan bazowy jądra SVL v${SYS_VERSION}?`)) {
       setDataStore(INITIAL_DATA_STORE);
+      pendingPersist.current = null;
       try {
         localStorage.removeItem(LOCAL_STORAGE_KEY);
       } catch (e) {
         console.error(e);
       }
     }
+  }, [setDataStore]);
+
+  const handleShowReport = useCallback(() => setShowReportModal(true), []);
+  const handleCloseReport = useCallback(() => setShowReportModal(false), []);
+  const handleRestoreSnapshot = useCallback((restored: DataStore) => setDataStore(restored), [setDataStore]);
+  const handleAddUpdate = useCallback(
+    (ver: string, desc: string) => {
+      handleExecutePythonCommand(`bump ${ver} ${desc}`).catch((e) => console.warn(e));
+    },
+    [handleExecutePythonCommand]
+  );
+
+  const renderView = () => {
+    switch (activeTab) {
+      case 'comms':
+        return (
+          <AgentCommsView
+            dataStore={dataStore}
+            onSendMessage={handleSendMessage}
+            isLoading={isAgentLoading}
+            onClearHistory={handleClearHistory}
+            onForceSync={handleForceSync}
+          />
+        );
+      case 'process_matrix':
+        return <TaskProcessMatrix />;
+      case 'astyria_mission':
+        return (
+          <AstyriaMissionView dataStore={dataStore} onUpdateDataStore={setDataStore} onSendMessage={handleSendMessage} />
+        );
+      case 'schema_graph':
+        return <MemorySchemaGraph dataStore={dataStore} />;
+      case 'temporal':
+        return (
+          <TemporalMatrix dataStore={dataStore} onRestoreSnapshot={handleRestoreSnapshot} onAddUpdate={handleAddUpdate} />
+        );
+      case 'terminal':
+        return (
+          <TerminalView
+            dataStore={dataStore}
+            onUpdateDataStore={setDataStore}
+            onSendMessage={handleSendMessage}
+            onExecutePythonCommand={handleExecutePythonCommand}
+          />
+        );
+      case 'monolith':
+        return <MonolithView dataStore={dataStore} onSetDataStore={setDataStore} />;
+      case 'datastore':
+        return <DataStoreView dataStore={dataStore} onUpdateDataStore={setDataStore} />;
+      case 'diagnostics':
+        return <DiagnosticsView dataStore={dataStore} />;
+      case 'visualizer':
+        return <TriadVisualization />;
+      case 'file_explorer':
+        return <FileExplorer />;
+      case 'apps':
+        return <AppsStudioView />;
+      case 'without_nlp':
+        return <WithoutNlpView />;
+      case 'github':
+        return <GitHubExportView />;
+      default:
+        return null;
+    }
   };
 
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
-        <Header
+        <MemoHeader
           dataStore={dataStore}
           onReset={handleResetToDefault}
-          onShowReport={() => setShowReportModal(true)}
+          onShowReport={handleShowReport}
           onSyncSystem={handleSyncSystem}
         />
 
-        <Navigation
+        <MemoNavigation
           activeTab={activeTab}
           onSelectTab={setActiveTab}
+          onPrefetchTab={prefetchView}
           messageCount={dataStore?.chat_history?.length || 0}
           versionCount={dataStore?.update_history?.length || 0}
         />
 
         <main className="flex-1 flex flex-col">
-          {activeTab === 'comms' && (
-            <AgentCommsView
-              dataStore={dataStore}
-              onSendMessage={handleSendMessage}
-              isLoading={isAgentLoading}
-              onClearHistory={handleClearHistory}
-              onForceSync={handleForceSync}
-            />
+          {sendError && (
+            <div
+              role="alert"
+              className="mx-3 mt-2 flex items-start justify-between gap-3 rounded-lg border border-rose-800/60 bg-rose-950/60 px-3 py-2 font-mono text-[11px] text-rose-200"
+            >
+              <span>⚠️ {sendError}</span>
+              <button
+                type="button"
+                onClick={() => setSendError(null)}
+                className="shrink-0 cursor-pointer text-rose-300 hover:text-rose-100"
+                aria-label="Zamknij komunikat"
+              >
+                ✕
+              </button>
+            </div>
           )}
-
-          {activeTab === 'process_matrix' && (
-            <TaskProcessMatrix />
-          )}
-
-          {activeTab === 'astyria_mission' && (
-            <AstyriaMissionView
-              dataStore={dataStore}
-              onUpdateDataStore={setDataStore}
-              onSendMessage={handleSendMessage}
-            />
-          )}
-
-          {activeTab === 'schema_graph' && (
-            <MemorySchemaGraph dataStore={dataStore} />
-          )}
-
-          {activeTab === 'temporal' && (
-            <TemporalMatrix
-              dataStore={dataStore}
-              onRestoreSnapshot={(restored) => setDataStore(restored)}
-              onAddUpdate={(ver, desc) => {
-                handleExecutePythonCommand(`bump ${ver} ${desc}`);
-              }}
-            />
-          )}
-
-          {activeTab === 'terminal' && (
-            <TerminalView
-              dataStore={dataStore}
-              onUpdateDataStore={setDataStore}
-              onSendMessage={handleSendMessage}
-              onExecutePythonCommand={handleExecutePythonCommand}
-            />
-          )}
-
-          {activeTab === 'monolith' && (
-            <MonolithView
-              dataStore={dataStore}
-              onSetDataStore={setDataStore}
-            />
-          )}
-
-          {activeTab === 'datastore' && (
-            <DataStoreView
-              dataStore={dataStore}
-              onUpdateDataStore={setDataStore}
-            />
-          )}
-
-          {activeTab === 'diagnostics' && (
-            <DiagnosticsView dataStore={dataStore} />
-          )}
-
-          {activeTab === 'visualizer' && (
-            <TriadVisualization />
-          )}
-
-          {activeTab === 'file_explorer' && (
-            <FileExplorer />
-          )}
-
-          {activeTab === 'apps' && (
-            <AppsStudioView />
-          )}
-
-          {activeTab === 'without_nlp' && (
-            <WithoutNlpView />
-          )}
-
-          {activeTab === 'github' && (
-            <GitHubExportView />
-          )}
+          <ErrorBoundary key={activeTab}>
+            <Suspense fallback={<ViewFallback />}>{renderView()}</Suspense>
+          </ErrorBoundary>
         </main>
 
-        <ReportModal
-          isOpen={showReportModal}
-          onClose={() => setShowReportModal(false)}
-          dataStore={dataStore}
-        />
+        {showReportModal && (
+          <Suspense fallback={null}>
+            <ReportModal isOpen={showReportModal} onClose={handleCloseReport} dataStore={dataStore} />
+          </Suspense>
+        )}
 
-        <SystemHealthDock />
+        <MemoHealthDock />
       </div>
     </ErrorBoundary>
   );

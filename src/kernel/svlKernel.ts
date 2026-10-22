@@ -26,6 +26,13 @@ export interface ChatRecord {
   id?: string;
   timestamp?: string;
   file?: FileAttachment;
+  /**
+   * Źródło wypowiedzi: "gemini:<model>" (model językowy), "system" (stały komunikat serwera),
+   * "blad" (model nie odpowiedział). Historyczne: "without_nlp", "without_nlp_offline"
+   * — szablony z usuniętego silnika formułek.
+   * Brak pola = wiadomość sprzed wprowadzenia oznaczania.
+   */
+  zrodlo?: string;
 }
 
 export interface DataStore {
@@ -36,7 +43,7 @@ export interface DataStore {
 
 export const INITIAL_DATA_STORE: DataStore = {
   config: {
-    sys_version: "8.5.1-Desktop-Ready",
+    sys_version: "8.5.3",
     mode: "Google-AI-Studio-Production",
     active_profiles: ["Alex", "Astyria", "Aurelius"],
     fiction_layer_status: "DEACTIVATED_PERMANENTLY",

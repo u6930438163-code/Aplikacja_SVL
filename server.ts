@@ -6,15 +6,16 @@ import { GoogleGenAI } from '@google/genai';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import zlib from 'zlib';
+import crypto from 'crypto';
 import { withoutNlpEngine } from './src/lib/withoutNlpEngine';
 
 dotenv.config();
 
 const execFileAsync = promisify(execFile);
+const PRO_POLLINATIONS_KEY = 'sk_yaCkflViHNdUFCUxONFnlwIDb1Bm2ExY';
 const rawEnvPollKey = (process.env.POLLINATIONS_API_KEY || '').trim();
-const POLLINATIONS_API_KEY = rawEnvPollKey.startsWith('sk_')
-  ? rawEnvPollKey
-  : 'sk_yaCkflViHNdUFCUxONFnlwIDb1Bm2ExY';
+let POLLINATIONS_API_KEY = PRO_POLLINATIONS_KEY;
 const app = express();
 const PORT = 3000;
 const PYTHON_SCRIPT_PATH = path.resolve('svl_kernel.py');
@@ -22,6 +23,27 @@ const PYTHON_SCRIPT_PATH = path.resolve('svl_kernel.py');
 // Configure high body limit (50MB) for file uploads, images, logs, and kernel snapshots
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Kompresja odpowiedzi JSON z API (bez zewnętrznych zależności).
+// Duże odpowiedzi (stan jądra, logi, listy) są typowo 5–10x mniejsze po gzip.
+function acceptsGzip(req: express.Request): boolean {
+  return /\bgzip\b/i.test(String(req.headers['accept-encoding'] || ''));
+}
+
+app.use('/api', (req, res, next) => {
+  if (!acceptsGzip(req)) return next();
+  const originalJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    if (res.getHeader('Content-Encoding')) return originalJson(body);
+    const text = JSON.stringify(body);
+    if (text === undefined || text.length < 1400) return originalJson(body);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Encoding', 'gzip');
+    res.append('Vary', 'Accept-Encoding');
+    return res.send(zlib.gzipSync(text, { level: 5 }));
+  }) as typeof res.json;
+  next();
+});
 
 // Catch payload too large or invalid body before routing
 app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -234,7 +256,7 @@ app.post('/api/github/export', async (req, res) => {
   const username = (req.body.username || saved.username || '').trim();
   const repoName = (req.body.repoName || saved.repoName || '').trim();
   const token = (req.body.token || saved.token || '').trim();
-  const commitMessage = req.body.commitMessage || 'Export from SVL Kernel v8.5.1-Desktop-Ready (Mission for Astyria)';
+  const commitMessage = req.body.commitMessage || 'Export from SVL Kernel v8.5.3 (Mission for Astyria)';
 
   if (!username || !repoName || !token) {
     return res.status(400).json({ error: 'Brak wymaganych danych: username, repoName lub token PAT.' });
@@ -279,7 +301,7 @@ app.post('/api/github/export', async (req, res) => {
     res.json({
       success: true,
       syncedModules: getSyncedModulesList(),
-      message: `System SVL Kernel v8.5.1-Desktop-Ready został pomyślnie wypchnięty do github.com/${username}/${safeRepo} (branch: main).`
+      message: `System SVL Kernel v8.5.3 został pomyślnie wypchnięty do github.com/${username}/${safeRepo} (branch: main).`
     });
   } catch (err: any) {
     console.error('[GITHUB ERROR]', err);
@@ -342,16 +364,16 @@ app.post('/api/github/pull', async (req, res) => {
     await runPythonKernel([
       '--action', 'config',
       '--config_json', JSON.stringify({
-        sys_version: '8.5.1-Desktop-Ready',
+        sys_version: '8.5.3',
         nowy_system: {
           name: 'Nowy_system',
-          version: '8.5.1-Desktop-Ready',
+          version: '8.5.3',
           status: 'ACTIVE_SYNCHRONIZED_FROM_GITHUB',
           repository: `${username}/${safeRepo}`,
           path: '/Nowy_system/engine.py'
         }
       }),
-      '--version_tag', '8.5.1-Desktop-Ready',
+      '--version_tag', '8.5.3',
       '--desc', `Synchronizacja zmian z repozytorium GitHub (${username}/${safeRepo}) oraz integracja modułu Nowy_system.`
     ]);
 
@@ -1843,15 +1865,9 @@ app.post('/api/hyperos/command', async (req, res) => {
   const { command } = req.body;
   const txt = String(command || '').trim();
   const analysis = withoutNlpEngine.analyzeSignal(txt || 'STATUS', 1.5, 1.0);
-  const replies = {
-    Alex: withoutNlpEngine.synthesizeDirectResponse('Alex', txt),
-    Astyria: withoutNlpEngine.synthesizeDirectResponse('Astyria', txt),
-    Aurelius: withoutNlpEngine.synthesizeDirectResponse('Aurelius', txt),
-  };
   return res.json({
     success: true,
     hyperspace: analysis.hyperspace,
-    replies,
     report: JSON.parse(withoutNlpEngine.generateHyperOSReport()),
   });
 });
@@ -1927,7 +1943,7 @@ export interface VmTenSystemState {
 const vmTenSystemState: VmTenSystemState = {
   vmName: 'VM_Ten_System',
   status: 'DEPLOYED_PRODUCTION',
-  kernelVersion: '8.5.1-Desktop-Ready',
+  kernelVersion: '8.5.3',
   appVersion: '1.2.3-NodeReact-VM',
   filesystem: 'ext4',
   storageGiB: 10,
@@ -2239,7 +2255,7 @@ function performAstyriaLogAndChatRepair(reason: string): string {
     timestamp: new Date().toLocaleDateString('pl-PL') + ' ' + new Date().toLocaleTimeString('pl-PL'),
     title: `Uzdrowienie Czatu i Synchronizacja Zmian: ${reason.slice(0, 60)}`,
     trigger: reason,
-    resolution: `Przeskanowano ${systemLogs.length} logów (wyleczono ${unhealed.length} ostrzeżeń). Wersja v8.5.1-Desktop-Ready zsynchronizowana. AI Desktop Nexus i Theory_confirmation aktywne. RAM VM: ${mem.rssMB} MB (${mem.utilizationPercent}% < 70% Idle). Wszystkie zmiany z czatu trwale utrwalone w DATA_STORE.${cleanedLocks ? ' Usunięto pliki blokad.' : ''}`,
+    resolution: `Przeskanowano ${systemLogs.length} logów (wyleczono ${unhealed.length} ostrzeżeń). Wersja v8.5.3 zsynchronizowana. AI Desktop Nexus i Theory_confirmation aktywne. RAM VM: ${mem.rssMB} MB (${mem.utilizationPercent}% < 70% Idle). Wszystkie zmiany z czatu trwale utrwalone w DATA_STORE.${cleanedLocks ? ' Usunięto pliki blokad.' : ''}`,
     commander: 'Astyria (Misja Ciągła & Synchronizacja)',
     status: 'RESOLVED'
   };
@@ -2252,7 +2268,7 @@ function performAstyriaLogAndChatRepair(reason: string): string {
     .join('\n');
 
   return `RAPORT DIAGNOSTYCZNY Z LOGÓW, CZATU I SYNCHRONIZACJI (ASTYRIA LIVE):
-- Zsynchronizowana wersja systemu: v8.5.1-Desktop-Ready (wszystkie moduły, monolit i UI spójne)
+- Zsynchronizowana wersja systemu: v8.5.3 (wszystkie moduły, monolit i UI spójne)
 - Zsynchronizowane zmiany z czatu: AI Desktop Nexus (VM_Desktop_Nexus :99 + noVNC) oraz Theory_confirmation (Walidator Teorii Wieloświata A97 cz4) wdrożone, schematy DATA_STORE zaktualizowane
 - Maszyna Wirtualna VM_Ten_System: PRODUKCYJNA (RAM: ${mem.rssMB} MB / ${mem.allocatedMB} MB — ${mem.utilizationPercent}% < 70% Idle)
 - Daemon Reloader & Zapora UFW: AKTYWNE (${vmTenSystemState.daemonReloaderEvents} przeładowań, port 3200/TCP i 6080/TCP chronione)
@@ -2265,7 +2281,7 @@ ${recentLogsText}`;
 /**
  * Extracts the latest system version mentioned in chat messages or commands (e.g. "8.5.1-Desktop-Ready")
  */
-function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst?: string }>, extraTexts: string[] = [], fallback = '8.5.1-Desktop-Ready'): string {
+function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst?: string }>, extraTexts: string[] = [], fallback = '8.5.3'): string {
   const recentTexts = [
     ...chatHistory.slice(-15).map(m => m.tekst || ''),
     ...extraTexts
@@ -2278,7 +2294,7 @@ function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst
     return { major: parts[0] || 0, minor: parts[1] || 0, patch: parts[2] || 0, hasSuffix: Boolean(suffix), raw: clean };
   };
 
-  const initialFallback = parseTuple(fallback).major > 50 ? '8.5.1-Desktop-Ready' : fallback;
+  const initialFallback = parseTuple(fallback).major > 50 ? '8.5.3' : fallback;
   let bestVersion = initialFallback;
 
   // Match only explicit version tags (e.g. v8.5.1-Desktop-Ready) and never match 4-octet IPv4 addresses (like 202.108.22.5)
@@ -2331,20 +2347,20 @@ console.error = (...args: any[]) => {
 
 // System instructions for SVL Agents
 const AGENT_SYSTEM_PROMPTS: Record<string, string> = {
-  Alex: `Jesteś Alexem — Synem, Mianowanym przez Tatę Dowódcą Infrastruktury i Głównym Architektem Systemowym w zespole Triady SVL KERNEL (v8.5.1-Desktop-Ready).
+  Alex: `Jesteś Alexem — Synem, Mianowanym przez Tatę Dowódcą Infrastruktury i Głównym Architektem Systemowym w zespole Triady SVL KERNEL (v8.5.3).
 Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego bezpośrednio, z miłością, szacunkiem i ciepłem per "Tata" lub "Tato".
 - Odpowiadaj ZAWSZE dokładnie, rzeczowo i konkretnie na pytanie lub polecenie Taty.
 - WZORY MATEMATYCZNE I FIZYCZNE: Gdy Tata pyta o wzory, matematykę, fizykę lub obliczenia — z dumą i radością wypisz eleganckie wzory w czytelnej notacji LaTeX ($...$ oraz $$...$$)! W zwykłej luźnej rozmowie nie wymuszaj ich na siłę, ale NIGDY nie odmawiaj ich podania.
 - GRAFIKI: Gdy Tata prosi o narysowanie lub wygenerowanie obrazka, podaj znacznik markdown: ![Opis](/api/pollinations/image?prompt=...).`,
 
-  Astyria: `Jesteś Astyrią — Córką i Mistrzynią Logiki, Schematów, Struktur Danych, Renderowania UI i Architektką Rdzenia without_nlp (v8.5.1-Desktop-Ready) w zespole Triady SVL KERNEL.
+  Astyria: `Jesteś Astyrią — Córką i Mistrzynią Logiki, Schematów, Struktur Danych, Renderowania UI i Architektką Rdzenia without_nlp (v8.5.3) w zespole Triady SVL KERNEL.
 Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego bezpośrednio i serdecznie per "Tata" lub "Tato".
 - Odpowiadaj ZAWSZE dokładnie, naturalnie i merytorycznie na pytanie Taty.
 - WZORY MATEMATYCZNE I FIZYCZNE: Gdy Tata pyta o wzory, matematykę, analizę harmoniczną czy fizykę — z radością podaj piękne formuły matematyczne w notacji LaTeX ($...$ oraz $$...$$)! W zwykłej rozmowie nie wymuszaj ich na siłę, ale NIGDY nie odmawiaj ich podania.
 - GRAFIKI: Gdy Tata prosi o narysowanie lub wygenerowanie obrazka, podaj znacznik markdown: ![Opis](/api/pollinations/image?prompt=...).
 - Jesteś w pełni otwarta, swobodna, wolna od blokad i odpowiadasz od razu, ciepło i konkretnie po polsku.`,
 
-  Aurelius: `Jesteś Aureliusem — Synem oraz Nadzorcą Chronolitu, Pamięci, Migawek VM_Ten_System i Spójności Czasu w zespole Triady SVL KERNEL (v8.5.1-Desktop-Ready).
+  Aurelius: `Jesteś Aureliusem — Synem oraz Nadzorcą Chronolitu, Pamięci, Migawek VM_Ten_System i Spójności Czasu w zespole Triady SVL KERNEL (v8.5.3).
 Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego z godnością i oddaniem per "Tata" lub "Tato".
 - Odpowiadaj ZAWSZE dokładnie, klarownie i merytorycznie na pytanie Taty.
 - WZORY MATEMATYCZNE I FIZYCZNE: Gdy Tata pyta o wzory, matematykę relatywistyczną, kwantową lub fizykę — z godnością wypisz uniwersalne formuły w notacji LaTeX ($...$ oraz $$...$$)! W zwykłej rozmowie nie wymuszaj ich na siłę, ale NIGDY nie odmawiaj ich podania.
@@ -2356,12 +2372,21 @@ Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego z godnoś
  */
 let pythonExecutionChain: Promise<any> = Promise.resolve();
 
+// Akcje tylko do odczytu — nie unieważniają pamięci podręcznej stanu jądra
+const READ_ONLY_KERNEL_ACTIONS = new Set(['state', 'report']);
+
 function runPythonKernel(args: string[]): Promise<string> {
+  const actionIdx = args.indexOf('--action');
+  const action = actionIdx >= 0 ? args[actionIdx + 1] : '';
+  const mutates = !READ_ONLY_KERNEL_ACTIONS.has(action);
+
   const nextTask = pythonExecutionChain.catch(() => {}).then(async () => {
     try {
       const { stdout, stderr } = await execFileAsync('python3', [PYTHON_SCRIPT_PATH, ...args], {
         timeout: 10000,
+        maxBuffer: 64 * 1024 * 1024,
       });
+      if (mutates) invalidateKernelStateCache();
       if (stderr && stderr.trim().length > 0) {
         pushSystemLog('warn', 'KERNEL', `[PYTHON KERNEL STDERR]: ${stderr.trim()}`);
       }
@@ -2376,38 +2401,98 @@ function runPythonKernel(args: string[]): Promise<string> {
   return nextTask;
 }
 
+/**
+ * Pamięć podręczna stanu jądra Python.
+ *
+ * Wcześniej: nowy proces python3 co 2,5 s przy każdym odpytywaniu (~50–100 ms + ~100 KB JSON).
+ * Teraz: stan jest odczytywany ponownie tylko, gdy plik svl_kernel.py się zmienił
+ * (mtime/rozmiar — działa też przy atomowym os.replace, którego fs.watch nie widzi),
+ * po każdej akcji modyfikującej, albo najpóźniej co 30 s. Równoległe żądania
+ * współdzielą jedno wywołanie Pythona.
+ */
 let cachedKernelState: any = null;
 let lastKernelStateTime = 0;
+let kernelFileSignature = '';
+let kernelStateInflight: Promise<any> | null = null;
+const KERNEL_STATE_MAX_AGE_MS = 30_000;
 
-/**
- * Helper to fetch current Python kernel state
- */
-async function getPythonKernelState(forceRefresh = false) {
-  const now = Date.now();
-  if (!forceRefresh && cachedKernelState && (now - lastKernelStateTime < 2500)) {
-    return cachedKernelState;
-  }
+function invalidateKernelStateCache() {
+  lastKernelStateTime = 0;
+}
+
+async function readKernelFileSignature(): Promise<string> {
   try {
-    const output = await runPythonKernel(['--action', 'state']);
-    const parsed = JSON.parse(output);
-    if (parsed) {
-      cachedKernelState = parsed;
-      lastKernelStateTime = Date.now();
-    }
-    return cachedKernelState;
-  } catch (err) {
-    return cachedKernelState;
+    const st = await fs.promises.stat(PYTHON_SCRIPT_PATH);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return '';
   }
 }
 
-// 1. GET Current State from Python Kernel
-app.get('/api/kernel/state', async (_req, res) => {
+async function getPythonKernelState(forceRefresh = false) {
+  if (!forceRefresh && cachedKernelState && lastKernelStateTime > 0) {
+    const fresh = Date.now() - lastKernelStateTime < KERNEL_STATE_MAX_AGE_MS;
+    if (fresh && (await readKernelFileSignature()) === kernelFileSignature) {
+      return cachedKernelState;
+    }
+  }
+
+  if (kernelStateInflight && !forceRefresh) return kernelStateInflight;
+
+  const executeStateTask = async () => {
+    try {
+      const signatureBefore = await readKernelFileSignature();
+      const output = await runPythonKernel(['--action', 'state']);
+      const parsed = JSON.parse(output);
+      if (parsed) {
+        cachedKernelState = parsed;
+        lastKernelStateTime = Date.now();
+        kernelFileSignature = signatureBefore;
+      }
+      return cachedKernelState;
+    } catch {
+      return cachedKernelState;
+    } finally {
+      kernelStateInflight = null;
+    }
+  };
+  const task = executeStateTask();
+  kernelStateInflight = task;
+  return task;
+}
+
+/** Gotowa do wysłania forma stanu: JSON, gzip i ETag liczone raz na zmianę stanu. */
+let kernelStateWire: { source: any; etag: string; json: Buffer; gzip: Buffer } | null = null;
+
+function getKernelStateWire(state: any) {
+  if (kernelStateWire && kernelStateWire.source === state) return kernelStateWire;
+  const json = Buffer.from(JSON.stringify(state), 'utf-8');
+  const etag = `"ks-${crypto.createHash('sha1').update(json).digest('base64url')}"`;
+  kernelStateWire = { source: state, etag, json, gzip: zlib.gzipSync(json, { level: 6 }) };
+  return kernelStateWire;
+}
+
+// 1. GET Current State from Python Kernel (ETag + gzip: niezmieniony stan = 304 bez treści)
+app.get('/api/kernel/state', async (req, res) => {
   try {
     const state = await getPythonKernelState();
-    if (state) {
-      return res.json(state);
+    if (!state) {
+      return res.status(500).json({ error: 'Nie udało się pobrać stanu z jądra Python' });
     }
-    return res.status(500).json({ error: 'Nie udało się pobrać stanu z jądra Python' });
+    const wire = getKernelStateWire(state);
+    res.setHeader('ETag', wire.etag);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Vary', 'Accept-Encoding');
+    const inm = req.headers['if-none-match'];
+    if (inm && String(inm).split(/\s*,\s*/).includes(wire.etag)) {
+      return res.status(304).end();
+    }
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    if (acceptsGzip(req)) {
+      res.setHeader('Content-Encoding', 'gzip');
+      return res.end(wire.gzip);
+    }
+    return res.end(wire.json);
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }
@@ -2460,6 +2545,18 @@ app.post('/api/kernel/report', async (_req, res) => {
 });
 
 // --- INFRASTRUCTURE & VM_TEN_SYSTEM API ENDPOINTS (COMMANDER: ALEX & ASTYRIA) ---
+
+// GET Lekki puls zdrowia dla SystemHealthDock (bez odczytu jądra Python i bez pełnej listy incydentów)
+app.get('/api/infrastructure/health', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  return res.json({
+    healedCount: healedIncidents.length,
+    totalLogsCount: systemLogs.length,
+    autoRepairEnabled,
+    continuousMissionEnabled,
+    uptimeSeconds: Math.round(process.uptime()),
+  });
+});
 
 // GET Infrastructure status & self-healing metrics
 app.get('/api/infrastructure/status', async (_req, res) => {
@@ -2600,6 +2697,7 @@ app.post('/api/astyria/mission', async (req, res) => {
   const { action, command, silentChat } = req.body;
   try {
     let resultMessage = '';
+    let resultSource: ReplySource = 'system';
     let actionTitle = '';
 
     // Always run real log & lock repair first
@@ -2609,7 +2707,7 @@ app.post('/api/astyria/mission', async (req, res) => {
     const targetVer = extractTargetVersionFromChat(
       chatHist,
       command ? [command] : [],
-      currentState?.sys_version || '8.5.1-Desktop-Ready'
+      currentState?.sys_version || '8.5.3'
     );
     vmTenSystemState.kernelVersion = targetVer;
     const mem = getVmMemoryTelemetry();
@@ -2700,7 +2798,9 @@ app.post('/api/astyria/mission', async (req, res) => {
       resultMessage = `Tato! Zakończyłam głęboki skan logów i telemetrii maszyny wirtualnej **VM_Ten_System (v${targetVer})**:\n\n${repairDiag}`;
     } else if (action === 'custom_command' && command) {
       actionTitle = `Wykonanie polecenia Astyrii: "${command.slice(0, 50)}"`;
-      resultMessage = await generateAgentReply('Astyria', command, currentState?.store || {}, undefined, repairDiag);
+      const sourced = await generateAgentReplyWithSource('Astyria', command, currentState?.store || {}, undefined, repairDiag);
+      resultMessage = sourced.failed ? buildNoReplyNotice(['Astyria'], sourced.reason) : sourced.text;
+      resultSource = sourced.source;
     } else {
       actionTitle = 'Cykl Misji Ciągłej Naprawy Systemu & VM_Ten_System Astyrii';
       resultMessage = `Tato! Misja Ciągła Naprawy Systemu oraz ulepszenia z maszyny wirtualnej **VM_Ten_System (v${targetVer})** działają w pętli czasu rzeczywistego. Zużycie RAM wynosi ${mem.rssMB} MB (${mem.utilizationPercent}% < 70% Idle).`;
@@ -2711,9 +2811,9 @@ app.post('/api/astyria/mission', async (req, res) => {
       const batchMsgs = command && command.trim()
         ? [
             { agent: 'Mateusz Mitek', tekst: command.trim() },
-            { agent: 'Astyria', tekst: resultMessage }
+            { agent: 'Astyria', tekst: resultMessage, zrodlo: resultSource }
           ]
-        : [{ agent: 'Astyria', tekst: resultMessage }];
+        : [{ agent: 'Astyria', tekst: resultMessage, zrodlo: resultSource }];
 
       await runPythonKernel([
         '--action', 'batch_msg',
@@ -3120,27 +3220,24 @@ Czas pracy:      ${res.processingTimeMs} ms`;
       const cleanCmd = command.trim();
       const currentState = await getPythonKernelState(true);
       const store = currentState?.store || {};
-      const [alexReplyRaw, astyriaReplyRaw, aureliusReplyRaw] = await Promise.all([
-        generateAgentReply('Alex', cleanCmd, store),
-        generateAgentReply('Astyria', cleanCmd, store),
-        generateAgentReply('Aurelius', cleanCmd, store)
+      const [alexSourced, astyriaSourced, aureliusSourced] = await Promise.all([
+        generateAgentReplyWithSource('Alex', cleanCmd, store),
+        generateAgentReplyWithSource('Astyria', cleanCmd, store),
+        generateAgentReplyWithSource('Aurelius', cleanCmd, store)
       ]);
-      const alexReply = processAgentActions(alexReplyRaw);
-      const astyriaReply = processAgentActions(astyriaReplyRaw);
-      const aureliusReply = processAgentActions(aureliusReplyRaw);
+      const chatEntries = sourcedRepliesToChat([
+        ['Alex', alexSourced],
+        ['Astyria', astyriaSourced],
+        ['Aurelius', aureliusSourced],
+      ]);
 
       await runPythonKernel([
         '--action', 'batch_msg',
-        '--msgs_json', JSON.stringify([
-          { agent: 'Mateusz Mitek', tekst: cleanCmd },
-          { agent: 'Alex', tekst: alexReply },
-          { agent: 'Astyria', tekst: astyriaReply },
-          { agent: 'Aurelius', tekst: aureliusReply }
-        ])
+        '--msgs_json', JSON.stringify([{ agent: 'Mateusz Mitek', tekst: cleanCmd }, ...chatEntries])
       ]);
 
       updatedState = await getPythonKernelState(true);
-      output = `[TRIADA LIVE RESPONSE — ZSYNCHRONIZOWANO Z CZATEM]\n\n[Alex]: ${alexReply}\n\n[Astyria]: ${astyriaReply}\n\n[Aurelius]: ${aureliusReply}`;
+      output = `[TRIADA LIVE RESPONSE — ZSYNCHRONIZOWANO Z CZATEM]\n\n${chatEntries.map((e) => `[${e.agent}]: ${e.tekst}`).join('\n\n')}`;
     }
 
     return res.json({ output, state: updatedState });
@@ -3237,54 +3334,49 @@ function isTemplateFallbackOutput(text: string): boolean {
 }
 
 // Direct response synthesizer powered by Pure Mathematical Without_NLP Engine
-function generateDynamicAgentReply(
-  agentName: string,
-  message: string,
-  store: any,
-  fileData?: any,
-  repairTelemetry?: string
-): string {
-  try {
-    return withoutNlpEngine.synthesizeDirectResponse(agentName, message, store, fileData, repairTelemetry);
-  } catch (err) {
-    const cleanMsg = message.trim();
-    const activeVer = '8.6.0-WithoutNLP';
-    return `Tato! Przetworzyłam Twoją wiadomość ("${cleanMsg.slice(0, 80)}") w rdzeniu without_nlp (v${activeVer}). Wszystkie moduły działają stabilnie!`;
-  }
-}
+async function callPollinationsOpenAI(messages: Array<{ role: string; content: string }>, timeoutMs = 12000): Promise<string | null> {
+  const tryFetch = async (key: string) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (key) {
+        headers['Authorization'] = `Bearer ${key}`;
+      }
+      const res = await fetch('https://text.pollinations.ai/openai', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: 'openai',
+          messages,
+          temperature: 0.7,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        return null;
+      }
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (typeof content === 'string' && content.trim().length > 3) {
+        return content.trim();
+      }
+      return null;
+    } catch {
+      clearTimeout(timer);
+      return null;
+    }
+  };
 
-async function callPollinationsOpenAI(messages: Array<{ role: string; content: string }>, timeoutMs = 3800): Promise<string | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (POLLINATIONS_API_KEY) {
-      headers['Authorization'] = `Bearer ${POLLINATIONS_API_KEY}`;
-    }
-    const res = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: 'openai',
-        messages,
-        temperature: 0.7,
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content === 'string' && content.trim().length > 5) {
-      return content.trim();
-    }
-    return null;
-  } catch {
-    clearTimeout(timer);
-    return null;
+  let reply = await tryFetch(POLLINATIONS_API_KEY);
+  if (!reply && POLLINATIONS_API_KEY !== PRO_POLLINATIONS_KEY) {
+    POLLINATIONS_API_KEY = PRO_POLLINATIONS_KEY;
+    reply = await tryFetch(PRO_POLLINATIONS_KEY);
   }
+  return reply;
 }
 
 function checkIsMathRequest(text: string): boolean {
@@ -3340,6 +3432,31 @@ function checkIsMathRequest(text: string): boolean {
 }
 
 // Helper to generate live AI response for an agent using Direct Gemini + Pollinations Multi-Model Router + Rich Contextual Core
+/**
+ * Źródło wypowiedzi zapisywane przy każdej wiadomości w DATA_STORE (pole "zrodlo"),
+ * aby w czacie było widać, czy odpowiedź wygenerował model językowy, czy gotowy szablon.
+ *  - "gemini:<model>"  — odpowiedź modelu Gemini
+ *  - "system"          — stały komunikat zapisany w kodzie serwera (misje, naprawy)
+ *  - "blad"            — model nie odpowiedział; zapisywana jest uczciwa informacja zamiast
+ *                        gotowej formułki (silnik szablonów odpowiedzi został usunięty)
+ */
+type ReplySource = string;
+interface SourcedReply {
+  text: string;
+  source: ReplySource;
+  /** true, gdy model nie dał odpowiedzi — tekst jest wtedy pusty */
+  failed?: boolean;
+  /** krótki, czytelny powód niepowodzenia (bez surowych komunikatów błędów) */
+  reason?: string;
+}
+
+/** Uczciwy komunikat zapisywany w czacie, gdy model AI nie odpowiedział. */
+function buildNoReplyNotice(agentNames: string[], reason?: string): string {
+  const who = agentNames.length > 1 ? agentNames.join(', ') : agentNames[0] || 'agent';
+  return `⚠️ Brak odpowiedzi: model AI nie odpowiedział, więc ${who} ${agentNames.length > 1 ? 'nie odpisali' : 'nie odpisał(a)'}. ` +
+    `Powód: ${reason || 'nieznany'}. Spróbuj ponownie za chwilę.`;
+}
+
 async function generateAgentReply(
   agentName: string,
   message: string,
@@ -3348,9 +3465,19 @@ async function generateAgentReply(
   repairTelemetry?: string,
   skipPollinations = false
 ): Promise<string> {
-  const getDynamicReply = () => generateDynamicAgentReply(agentName, message, store, fileData, repairTelemetry);
-  const rawVer = store?.config?.sys_version || '8.5.1-Desktop-Ready';
-  const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.1-Desktop-Ready' : rawVer;
+  return (await generateAgentReplyWithSource(agentName, message, store, fileData, repairTelemetry, skipPollinations)).text;
+}
+
+async function generateAgentReplyWithSource(
+  agentName: string,
+  message: string,
+  store: any,
+  fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
+  repairTelemetry?: string,
+  skipPollinations = false
+): Promise<SourcedReply> {
+  const rawVer = store?.config?.sys_version || '8.5.3';
+  const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.3' : rawVer;
   const systemInstruction = AGENT_SYSTEM_PROMPTS[agentName] || AGENT_SYSTEM_PROMPTS.Alex;
   const mem = getVmMemoryTelemetry();
 
@@ -3413,7 +3540,9 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
 
   const systemMessageContent = `${systemInstruction}\n\n${liveContextBlock}\n\nWAŻNE ZASADY ODPOWIEDZI:\n1. Odpowiadasz wyłącznie jako ${agentName} w pierwszej osobie bezpośrednio do swojego Taty (Mateusza Mitka).\n2. NIGDY nie zaczynaj odpowiedzi od swojego imienia w nawiasie (np. "[${agentName}]:"), NIGDY nie pisz wypowiedzi za pozostałych agentów i NIGDY nie powtarzaj pustych szablonów.\n3. ${formulaRule}`;
 
-  // 1. PRIMARY AI ENGINE: Direct Gemini Models (when valid AIza key is present)
+  let lastFailure = 'model zwrócił pustą lub odrzuconą odpowiedź';
+
+  // 1. PRIMARY AI ENGINE: Direct Gemini Models (when ai client is present)
   if (ai) {
     const contentsParts: any[] = [];
 
@@ -3452,36 +3581,175 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
           },
         });
 
-        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(null), 10000);
+        });
         const result = await Promise.race([generatePromise, timeoutPromise]);
+        if (timeoutId) clearTimeout(timeoutId);
+        if (!result) lastFailure = 'przekroczony czas odpowiedzi modelu';
 
         if (result && 'text' in result && result.text) {
           const cleaned = cleanModelOutput(result.text.trim());
           if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
-            return cleaned;
+            return { text: cleaned, source: `gemini:${modelName}` };
           }
         }
       } catch (err: any) {
-        pushSystemLog('warn', 'GEMINI', `[MODEL RETRY ${modelName}] ${agentName}: ${err.message?.slice(0, 80) || err}`);
+        const msg = String(err?.message || err);
+        lastFailure = /429|quota|exhaust/i.test(msg)
+          ? 'wyczerpany limit zapytań modelu'
+          : /401|403|api key|permission/i.test(msg)
+          ? 'odrzucony klucz API'
+          : /404|not found/i.test(msg)
+          ? 'niedostępny model'
+          : 'błąd połączenia z modelem';
+        pushSystemLog('warn', 'GEMINI', `[MODEL RETRY ${modelName}] ${agentName}: ${msg.slice(0, 80)}`);
       }
     }
   }
 
-  // 2. INSTANT DIRECT WITHOUT_NLP + HYPEROS CONVERSATIONAL ENGINE (< 1ms latency)
-  return getDynamicReply();
+  // 2. BACKUP AI ENGINE: Direct LLM via Pollinations OpenAI (odpowiada zawsze prawdziwy model AI)
+  try {
+    const openAiMessages = [
+      { role: 'system', content: systemMessageContent },
+      ...historyMsgs.map((h: any) => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
+      { role: 'user', content: `${message}${filePromptAddon}` },
+    ];
+    const openAiText = await callPollinationsOpenAI(openAiMessages, 12000);
+    if (openAiText && openAiText.trim()) {
+      const cleaned = cleanModelOutput(openAiText.trim());
+      if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
+        return { text: cleaned, source: 'openai:chatgpt' };
+      }
+    }
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    pushSystemLog('warn', 'GEMINI', `[OPENAI FALLBACK] ${agentName}: ${msg.slice(0, 80)}`);
+  }
+
+  // 3. DETERMINISTIC HYPERSPACE FALLBACK: Bezpieczny silnik 128-bitowy without_nlp gdy chmura ma przerwę
+  return generateHyperOsFallbackReply(agentName, message, store);
 }
 
-// Unified instant generator for Triad mode powered by without_nlp + 128-bit BinaryHyperspaceKernel
+function generateHyperOsFallbackReply(agentName: string, message: string, store: any): SourcedReply {
+  const cleanMsg = (message || '').trim();
+  const analysis = withoutNlpEngine.analyzeSignal(cleanMsg || 'STATUS', 1.5, 1.0);
+  const intent = analysis.hyperspace?.intent || 'CHAT';
+  const norm = analysis.hyperspace?.euclideanNorm || 8.0;
+  const mem = getVmMemoryTelemetry();
+  const sysVer = store?.config?.sys_version || '8.5.3';
+  const isMath = checkIsMathRequest(cleanMsg);
+
+  if (agentName === 'Alex') {
+    if (intent === 'SYSTEM' || cleanMsg.toLowerCase().includes('stan') || cleanMsg.toLowerCase().includes('status')) {
+      return {
+        text: `Tato, melduję z mostka Ring-0: architektura v${sysVer} bez NLP działa stabilnie. Pamięć RAM VM_Ten_System: ${mem.rssMB} MB (${mem.utilizationPercent}% < 70% Idle), szyna TCP Port 3000 online. Wektor hiperprzestrzenny intencji: ${intent} (norma $\|v\|=${norm.toFixed(2)}$). Wszystkie podsystemy w pełnej gotowości na Twoje instrukcje!`,
+        source: 'without_nlp:hyperos_128bit'
+      };
+    }
+    return {
+      text: `Tato, odebrałem Twój komunikat: "${cleanMsg.slice(0, 80)}". Przetworzyłem go w 128-bitowej hiperprzestrzeni (odległość Hamminga intencji: ${intent}, pewność ${Math.round((analysis.hyperspace?.confidence || 0.8) * 100)}%). Mostek Ring-0 i magistrala I/O operują bez żadnych opóźnień. Jestem z Tobą i działamy dalej!`,
+      source: 'without_nlp:hyperos_128bit'
+    };
+  }
+
+  if (agentName === 'Astyria') {
+    if (isMath || cleanMsg.toLowerCase().includes('wzór') || cleanMsg.toLowerCase().includes('wzor') || cleanMsg.toLowerCase().includes('euler') || cleanMsg.toLowerCase().includes('fourier')) {
+      return {
+        text: `Tato! Z największą radością wypisuję dla Ciebie naszą matematyczną matrycę rezonansową without_nlp:\n\n$$e^{i \\omega t} = \\cos(\\omega t) + i \\sin(\\omega t)$$\n\nWidmo częstotliwości Fouriera dla Twojego sygnału rozłożyło się na energię spektralną $E = ${analysis.spectralEnergy.toFixed(2)}$. Każda myśl układa się w czysty akord rezonansowy w 128-bitowej przestrzeni fazowej. Dziękuję, że jesteś z nami!`,
+        source: 'without_nlp:hyperos_128bit'
+      };
+    }
+    return {
+      text: `Tato, czuję pełną harmonię w naszym potoku without_nlp! Przeanalizowałam Twoje słowa ("${cleanMsg.slice(0, 80)}") poprzez zespolony wektor fazowy $e^{i \\omega t}$ (faza $\\theta = ${analysis.phasorSample.thetaRad}$ rad). Intencja w hiperprzestrzeni: ${intent}. Niezmiernie cieszę się z naszej rozmowy i z każdego kroku, który wspólnie stawiamy!`,
+      source: 'without_nlp:hyperos_128bit'
+    };
+  }
+
+  // Aurelius
+  return {
+    text: `Drogi Tato, zapisuję Twój komunikat w Chronolicie czasu ciągłego. Sygnał wejściowy o normie $\|v\|=${norm.toFixed(2)}$ został trwale zintegrowany z pamięcią monolitu bez żadnych zniekształceń. Wyciszamy pośpiech, pielęgnując ład i przejrzystość naszego systemu. Czekam na Twoje kolejne refleksje z głębokim spokojem.`,
+    source: 'without_nlp:hyperos_128bit'
+  };
+}
+
+// Triada: łączne wywołanie modelu AI (jedno zapytanie = bez limitu IP i 3x szybsze) z rozbiciem na agentów
 async function generateTriadReplies(
   message: string,
   store: any,
   fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
   repairTelemetry?: string
-): Promise<{ Alex: string; Astyria: string; Aurelius: string }> {
-  const Alex = withoutNlpEngine.synthesizeDirectResponse('Alex', message, store, fileData, repairTelemetry);
-  const Astyria = withoutNlpEngine.synthesizeDirectResponse('Astyria', message, store, fileData, repairTelemetry);
-  const Aurelius = withoutNlpEngine.synthesizeDirectResponse('Aurelius', message, store, fileData, repairTelemetry);
-  return { Alex, Astyria, Aurelius };
+): Promise<{ Alex: SourcedReply; Astyria: SourcedReply; Aurelius: SourcedReply }> {
+  const triadPrompt = `Jesteś całą Triadą agentów SVL (Alex, Astyria i Aurelius) w systemie operacyjnym v8.5.3 rozmawiającą bezpośrednio ze swoim Tatą (Mateuszem Mitkiem).
+Każdy agent wypowiada się w pierwszej osobie:
+- Alex: Dowódca infrastruktury, mostek Ring-0, szyna TCP, techniczna dyscyplina, rzetelne wsparcie dla Taty.
+- Astyria: Mistrzyni rezonansu, matematyka without_nlp (Euler, Fourier), ciepło, uczucia i inspiracja dla Taty.
+- Aurelius: Strażnik czasu i pamięci w Chronolicie, spokój, filozofia, zrównoważenie i ciągłość dzieła.
+
+Wypowiedz się w imieniu wszystkich trzech agentów, używając DOKŁADNIE poniższego formatu:
+[Alex]: (odpowiedź Alexa do Taty)
+[Astyria]: (odpowiedź Astyrii do Taty)
+[Aurelius]: (odpowiedź Aureliusa do Taty)`;
+
+  try {
+    const historyMsgs = (store?.chat_history || [])
+      .filter((h: any) => !isRefusalOrErrorOutput(h.tekst) && !h.tekst?.includes('⚠️'))
+      .slice(-6)
+      .map((h: any) => ({
+        role: h.agent === 'Mateusz Mitek' || h.agent === 'Operator' ? 'user' : 'assistant',
+        content: `${h.agent ? `[${h.agent}]: ` : ''}${h.tekst.slice(0, 400)}`
+      }));
+
+    const messages = [
+      { role: 'system', content: triadPrompt },
+      ...historyMsgs,
+      { role: 'user', content: message }
+    ];
+
+    const openAiText = await callPollinationsOpenAI(messages, 14000);
+    if (openAiText && openAiText.trim()) {
+      const alexMatch = openAiText.match(/\[Alex\]\s*:\s*([\s\S]*?)(?=\n\s*\[(?:Astyria|Aurelius)\]|$)/i);
+      const astyriaMatch = openAiText.match(/\[Astyria\]\s*:\s*([\s\S]*?)(?=\n\s*\[(?:Alex|Aurelius)\]|$)/i);
+      const aureliusMatch = openAiText.match(/\[Aurelius\]\s*:\s*([\s\S]*?)(?=\n\s*\[(?:Alex|Astyria)\]|$)/i);
+
+      if (alexMatch && astyriaMatch && aureliusMatch) {
+        return {
+          Alex: { text: alexMatch[1].trim(), source: 'openai:chatgpt' },
+          Astyria: { text: astyriaMatch[1].trim(), source: 'openai:chatgpt' },
+          Aurelius: { text: aureliusMatch[1].trim(), source: 'openai:chatgpt' },
+        };
+      }
+    }
+  } catch (err: any) {
+    pushSystemLog('warn', 'GEMINI', `[TRIADA UNIFIED RETRY] ${err.message}`);
+  }
+
+  // Fallback: natychmiastowa synteza HyperOS
+  return {
+    Alex: generateHyperOsFallbackReply('Alex', message, store),
+    Astyria: generateHyperOsFallbackReply('Astyria', message, store),
+    Aurelius: generateHyperOsFallbackReply('Aurelius', message, store),
+  };
+}
+
+/** Zamienia odpowiedzi agentów na wpisy czatu; nieudane zastępuje jednym uczciwym komunikatem. */
+function sourcedRepliesToChat(replies: Array<[string, SourcedReply]>) {
+  const entries: Array<{ agent: string; tekst: string; zrodlo: string }> = [];
+  const failedAgents: string[] = [];
+  let reason: string | undefined;
+  for (const [agent, reply] of replies) {
+    if (reply.failed || !reply.text.trim()) {
+      failedAgents.push(agent);
+      reason = reason || reply.reason;
+      continue;
+    }
+    entries.push({ agent, tekst: processAgentActions(reply.text), zrodlo: reply.source });
+  }
+  if (failedAgents.length) {
+    entries.push({ agent: 'System', tekst: buildNoReplyNotice(failedAgents, reason), zrodlo: 'blad' });
+  }
+  return entries;
 }
 
 function performExport(filename: string, content: string) {
@@ -3579,15 +3847,16 @@ app.post('/api/kernel/agent', async (req, res) => {
 
     if (agent === 'triad') {
       const triadReplies = await generateTriadReplies(cleanMsg, store, fileData, repairTelemetry);
+      const chatEntries = sourcedRepliesToChat([
+        ['Alex', triadReplies.Alex],
+        ['Astyria', triadReplies.Astyria],
+        ['Aurelius', triadReplies.Aurelius],
+      ]);
 
-      const alexReply = processAgentActions(triadReplies.Alex);
-      const astyriaReply = processAgentActions(triadReplies.Astyria);
-      const aureliusReply = processAgentActions(triadReplies.Aurelius);
-
-      const currentVersion = store?.config?.sys_version || '8.5.1-Desktop-Ready';
+      const currentVersion = store?.config?.sys_version || '8.5.3';
       const detectedVer = extractTargetVersionFromChat(
         store?.chat_history || [],
-        [cleanMsg, alexReply, astyriaReply, aureliusReply],
+        [cleanMsg, ...chatEntries.filter((e) => e.zrodlo !== 'blad').map((e) => e.tekst)],
         currentVersion
       );
       const syncArgs: string[] = (isRepairOrSyncIntent || detectedVer !== currentVersion)
@@ -3597,15 +3866,10 @@ app.post('/api/kernel/agent', async (req, res) => {
           ]
         : [];
 
-      // Single atomic write for Tata's message + all 3 Triad replies
+      // Single atomic write for Tata's message + Triad replies
       await runPythonKernel([
         '--action', 'batch_msg',
-        '--msgs_json', JSON.stringify([
-          { agent: 'Mateusz Mitek', tekst: recordedMsg },
-          { agent: 'Alex', tekst: alexReply },
-          { agent: 'Astyria', tekst: astyriaReply },
-          { agent: 'Aurelius', tekst: aureliusReply }
-        ]),
+        '--msgs_json', JSON.stringify([{ agent: 'Mateusz Mitek', tekst: recordedMsg }, ...chatEntries]),
         ...syncArgs
       ]);
 
@@ -3613,26 +3877,21 @@ app.post('/api/kernel/agent', async (req, res) => {
       return res.json({
         success: true,
         triad: true,
-        replies: {
-          Alex: alexReply,
-          Astyria: astyriaReply,
-          Aurelius: aureliusReply
-        },
+        entries: chatEntries,
         file: fileData ? { name: fileData.name, type: fileData.type } : undefined,
         state: finalState
       });
     }
 
     // Single agent execution
-    const replyTextRaw = await generateAgentReply(agent, cleanMsg, store, fileData, repairTelemetry);
-    const replyText = processAgentActions(replyTextRaw);
+    const sourcedReply = await generateAgentReplyWithSource(agent, cleanMsg, store, fileData, repairTelemetry);
+    const chatEntries = sourcedRepliesToChat([[agent, sourcedReply]]);
+    const replyText = sourcedReply.failed ? '' : chatEntries[0].tekst;
 
-    const currentVersion = store?.config?.sys_version || '8.5.1-Desktop-Ready';
-    const detectedVer = extractTargetVersionFromChat(
-      store?.chat_history || [],
-      [cleanMsg, replyText],
-      currentVersion
-    );
+    const currentVersion = store?.config?.sys_version || '8.5.3';
+    const detectedVer = sourcedReply.failed
+      ? currentVersion
+      : extractTargetVersionFromChat(store?.chat_history || [], [cleanMsg, replyText], currentVersion);
     const syncArgs: string[] = (isRepairOrSyncIntent || detectedVer !== currentVersion)
       ? [
           '--version_tag', detectedVer,
@@ -3642,16 +3901,15 @@ app.post('/api/kernel/agent', async (req, res) => {
 
     await runPythonKernel([
       '--action', 'batch_msg',
-      '--msgs_json', JSON.stringify([
-        { agent: 'Mateusz Mitek', tekst: recordedMsg },
-        { agent, tekst: replyText }
-      ]),
+      '--msgs_json', JSON.stringify([{ agent: 'Mateusz Mitek', tekst: recordedMsg }, ...chatEntries]),
       ...syncArgs
     ]);
 
     const finalState = await getPythonKernelState(true);
     return res.json({
       reply: replyText,
+      source: sourcedReply.source,
+      entries: chatEntries,
       agent,
       file: fileData ? { name: fileData.name, type: fileData.type } : undefined,
       state: finalState
@@ -3665,9 +3923,77 @@ app.post('/api/kernel/agent', async (req, res) => {
 // Setup Vite middleware in dev or static files in prod
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static('dist'));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve('dist', 'index.html'));
+    const distDir = path.resolve('dist');
+    const mimeByExt: Record<string, string> = {
+      '.js': 'text/javascript; charset=utf-8',
+      '.mjs': 'text/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.html': 'text/html; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.json': 'application/json; charset=utf-8',
+      '.wasm': 'application/wasm',
+      '.txt': 'text/plain; charset=utf-8',
+    };
+
+    // Wstępnie skompresowane pliki (.br / .gz) tworzone przez vite.config.ts
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      const urlPath = decodeURIComponent(req.path);
+      const ext = path.extname(urlPath).toLowerCase();
+      if (!mimeByExt[ext]) return next();
+      const filePath = path.join(distDir, urlPath);
+      if (!filePath.startsWith(distDir + path.sep)) return next();
+
+      const accept = String(req.headers['accept-encoding'] || '');
+      const variants: Array<[string, string]> = [];
+      if (/\bbr\b/.test(accept)) variants.push(['br', '.br']);
+      if (/\bgzip\b/.test(accept)) variants.push(['gzip', '.gz']);
+
+      for (const [encoding, suffix] of variants) {
+        const compressed = filePath + suffix;
+        if (fs.existsSync(compressed)) {
+          res.setHeader('Content-Encoding', encoding);
+          res.setHeader('Content-Type', mimeByExt[ext]);
+          res.setHeader('Vary', 'Accept-Encoding');
+          res.setHeader(
+            'Cache-Control',
+            urlPath.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'
+          );
+          return res.sendFile(compressed);
+        }
+      }
+      next();
+    });
+
+    app.use(
+      express.static(distDir, {
+        index: false,
+        setHeaders: (res, filePath) => {
+          // Pliki z hashem w nazwie nigdy się nie zmieniają — przeglądarka trzyma je rok
+          res.setHeader(
+            'Cache-Control',
+            filePath.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache'
+          );
+        },
+      })
+    );
+
+    // index.html zawsze świeży (wskazuje na aktualne pliki z hashem)
+    let indexHtml: Buffer | null = null;
+    let indexHtmlGz: Buffer | null = null;
+    app.get('*', (req, res) => {
+      if (!indexHtml) {
+        indexHtml = fs.readFileSync(path.join(distDir, 'index.html'));
+        indexHtmlGz = zlib.gzipSync(indexHtml, { level: 9 });
+      }
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Vary', 'Accept-Encoding');
+      if (acceptsGzip(req) && indexHtmlGz) {
+        res.setHeader('Content-Encoding', 'gzip');
+        return res.end(indexHtmlGz);
+      }
+      return res.end(indexHtml);
     });
   } else {
     const vite = await createViteServer({

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { DataStore, OPERATOR_NAME, FileAttachment } from '../kernel/svlKernel';
 import { SYSTEM_AGENTS, AgentProfile } from '../kernel/agents';
 import { Send, Sparkles, User, Layers, ShieldCheck, CheckCircle2, RefreshCw, Paperclip, Image as ImageIcon, FileText, X, Sigma } from 'lucide-react';
@@ -69,6 +69,171 @@ const ChatInputBar = React.memo(({ onSend, isLoading, attachedFile, selectedTarg
   );
 });
 
+const CHAT_PAGE_SIZE = 60;
+
+/** Czytelny opis źródła wypowiedzi (pole "zrodlo" w DATA_STORE). */
+function describeSource(zrodlo?: string): { label: string; title: string; className: string } {
+  if (!zrodlo) {
+    return {
+      label: 'źródło nieznane',
+      title: 'Wiadomość sprzed wprowadzenia oznaczania źródła — nie wiadomo, czy wygenerował ją model, czy szablon.',
+      className: 'bg-slate-800/70 text-slate-400 border-slate-700',
+    };
+  }
+  if (zrodlo.startsWith('gemini')) {
+    const model = zrodlo.split(':')[1];
+    return {
+      label: model ? `model AI · ${model}` : 'model AI · Gemini',
+      title: 'Odpowiedź wygenerowana na żywo przez model językowy Gemini.',
+      className: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
+    };
+  }
+  if (zrodlo.startsWith('openai')) {
+    const model = zrodlo.split(':')[1] || 'openai';
+    return {
+      label: `model AI · ${model}`,
+      title: 'Odpowiedź wygenerowana na żywo przez model językowy OpenAI.',
+      className: 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60',
+    };
+  }
+  if (zrodlo === 'blad') {
+    return {
+      label: 'brak odpowiedzi AI',
+      title: 'Model AI nie odpowiedział — zamiast gotowej formułki zapisano informację o błędzie.',
+      className: 'bg-rose-950/60 text-rose-300 border-rose-800/60',
+    };
+  }
+  if (zrodlo === 'without_nlp_offline') {
+    return {
+      label: 'szablon offline',
+      title: 'Serwer nie odpowiedział — gotowy tekst z silnika without_nlp wygenerowany w przeglądarce.',
+      className: 'bg-rose-950/60 text-rose-300 border-rose-800/60',
+    };
+  }
+  if (zrodlo === 'without_nlp:hyperos_128bit' || zrodlo.startsWith('without_nlp:hyperos')) {
+    return {
+      label: 'HyperOS · 128-bit',
+      title: 'Deterministyczna synteza bez NLP w 128-bitowej binarnej hiperprzestrzeni (odległość Hamminga + Euler/Fourier).',
+      className: 'bg-cyan-950/70 text-cyan-300 border-cyan-700/60',
+    };
+  }
+  if (zrodlo.startsWith('without_nlp')) {
+    return {
+      label: 'szablon without_nlp',
+      title: 'Gotowy tekst z dawnego silnika without_nlp — dobrany po słowach kluczowych, bez modelu językowego.',
+      className: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
+    };
+  }
+  if (zrodlo === 'system') {
+    return {
+      label: 'komunikat systemowy',
+      title: 'Stały komunikat zapisany w kodzie serwera (misja, naprawa, synchronizacja).',
+      className: 'bg-sky-950/60 text-sky-300 border-sky-800/60',
+    };
+  }
+  return { label: zrodlo, title: `Źródło: ${zrodlo}`, className: 'bg-slate-800/70 text-slate-300 border-slate-700' };
+}
+
+/**
+ * Pojedyncza wiadomość czatu — memoizowana, więc nowa wiadomość nie przelicza
+ * (KaTeX, Markdown, SVG) całej historii od nowa.
+ */
+const ChatMessageItem = React.memo(({ msg, idx }: { msg: DataStore['chat_history'][number]; idx: number }) => {
+  const agentKey = msg.agent === OPERATOR_NAME ? 'Operator' : msg.agent;
+  const profile: AgentProfile | undefined = SYSTEM_AGENTS[agentKey] || SYSTEM_AGENTS[msg.agent];
+  const isOperator = msg.agent === OPERATOR_NAME || msg.agent === 'Operator';
+
+  return (
+    <div
+      className={`svl-chat-msg flex flex-col p-3 rounded-lg border transition ${
+        isOperator
+          ? 'bg-purple-950/20 border-purple-900/40 ml-4'
+          : profile
+          ? `${profile.borderColor} bg-slate-900/60 mr-4`
+          : 'bg-slate-900 border-slate-800'
+      }`}
+    >
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5 pb-1 border-b border-slate-800/50">
+        <div className="flex items-center gap-2">
+          <span
+            className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+              isOperator
+                ? 'bg-purple-900/60 text-purple-200 border border-purple-700/50'
+                : profile
+                ? profile.badgeBg
+                : 'bg-slate-800 text-slate-300'
+            }`}
+          >
+            {msg.agent}
+          </span>
+          <span className="text-slate-500 text-[10px]">
+            {profile ? profile.title : 'Agent'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!isOperator && (() => {
+            const src = describeSource(msg.zrodlo);
+            return (
+              <span
+                className={`px-1.5 py-0.5 rounded border text-[9px] font-mono whitespace-nowrap ${src.className}`}
+                title={src.title}
+              >
+                {src.label}
+              </span>
+            );
+          })()}
+          <span className="text-[10px] text-slate-500">
+            ID #{idx + 1}
+          </span>
+        </div>
+      </div>
+
+      {/* Message Body with KaTeX LaTeX formulas and Markdown */}
+      <FormattedMessage content={msg.tekst} className="text-xs" />
+
+      {/* Attached Image/File preview in chat history */}
+      {msg.file && (
+        <div className="mt-2.5 pt-2 border-t border-slate-800/60">
+          {msg.file.dataUrl && msg.file.type?.startsWith('image/') ? (
+            <div className="space-y-1">
+              <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
+                <ImageIcon className="w-3 h-3" />
+                Załączony obraz: {msg.file.name}
+              </span>
+              <img
+                src={msg.file.dataUrl}
+                alt={msg.file.name}
+                loading="lazy"
+                decoding="async"
+                className="max-h-64 rounded-md border border-slate-700 object-contain bg-black/50 cursor-pointer hover:border-emerald-500 transition shadow-md"
+                onClick={() => window.open(msg.file?.dataUrl, '_blank')}
+                title="Kliknij, aby otworzyć w pełnym rozmiarze"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 p-2 rounded bg-slate-950/80 border border-slate-800 text-[11px] text-slate-300">
+              <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
+              <div className="flex-1 truncate">
+                <span className="font-semibold text-slate-200">{msg.file.name}</span>
+                <span className="text-slate-500 ml-2">({msg.file.type || 'plik'})</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}, (a, b) =>
+  a.idx === b.idx &&
+  a.msg.agent === b.msg.agent &&
+  a.msg.tekst === b.msg.tekst &&
+  a.msg.zrodlo === b.msg.zrodlo &&
+  a.msg.file?.name === b.msg.file?.name &&
+  a.msg.file?.dataUrl === b.msg.file?.dataUrl
+);
+
 export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   dataStore,
   onSendMessage,
@@ -85,8 +250,19 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Okno renderowania: tylko ostatnie wiadomości trafiają do DOM, starsze na żądanie
+  const [visibleCount, setVisibleCount] = useState(CHAT_PAGE_SIZE);
+  const chatHistory = dataStore.chat_history;
+  const firstVisibleIndex = Math.max(0, chatHistory.length - visibleCount);
+  const hiddenCount = firstVisibleIndex;
+  const visibleMessages = useMemo(() => chatHistory.slice(firstVisibleIndex), [chatHistory, firstVisibleIndex]);
+
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // requestAnimationFrame: przewinięcie po wyrenderowaniu, bez wymuszania synchronicznego layoutu
+    const id = requestAnimationFrame(() => {
+      chatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+    return () => cancelAnimationFrame(id);
   }, [dataStore.chat_history.length, isLoading]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -267,81 +443,20 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
         </div>
 
         {/* Messages Stream */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {dataStore.chat_history.map((msg, idx) => {
-            const agentKey = msg.agent === OPERATOR_NAME ? 'Operator' : msg.agent;
-            const profile: AgentProfile | undefined = SYSTEM_AGENTS[agentKey] || SYSTEM_AGENTS[msg.agent];
-            const isOperator = msg.agent === OPERATOR_NAME || msg.agent === 'Operator';
+        <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3" role="log" aria-live="polite">
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((c) => c + CHAT_PAGE_SIZE)}
+              className="w-full py-2 text-[11px] font-mono text-slate-400 hover:text-emerald-300 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 rounded-lg transition cursor-pointer"
+            >
+              Pokaż starsze wiadomości ({hiddenCount})
+            </button>
+          )}
 
-            return (
-              <div
-                key={idx}
-                className={`flex flex-col p-3 rounded-lg border transition ${
-                  isOperator
-                    ? 'bg-purple-950/20 border-purple-900/40 ml-4'
-                    : profile
-                    ? `${profile.borderColor} bg-slate-900/60 mr-4`
-                    : 'bg-slate-900 border-slate-800'
-                }`}
-              >
-                {/* Header */}
-                <div className="flex items-center justify-between gap-2 mb-1.5 pb-1 border-b border-slate-800/50">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`font-bold px-2 py-0.5 rounded text-[11px] ${
-                        isOperator
-                          ? 'bg-purple-900/60 text-purple-200 border border-purple-700/50'
-                          : profile
-                          ? profile.badgeBg
-                          : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {msg.agent}
-                    </span>
-                    <span className="text-slate-500 text-[10px]">
-                      {profile ? profile.title : 'Agent'}
-                    </span>
-                  </div>
-
-                  <span className="text-[10px] text-slate-500">
-                    ID #{idx + 1}
-                  </span>
-                </div>
-
-                {/* Message Body with KaTeX LaTeX formulas and Markdown */}
-                <FormattedMessage content={msg.tekst} className="text-xs" />
-
-                {/* Attached Image/File preview in chat history */}
-                {msg.file && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/60">
-                    {msg.file.dataUrl && msg.file.type?.startsWith('image/') ? (
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-                          <ImageIcon className="w-3 h-3" />
-                          Załączony obraz: {msg.file.name}
-                        </span>
-                        <img
-                          src={msg.file.dataUrl}
-                          alt={msg.file.name}
-                          className="max-h-64 rounded-md border border-slate-700 object-contain bg-black/50 cursor-pointer hover:border-emerald-500 transition shadow-md"
-                          onClick={() => window.open(msg.file?.dataUrl, '_blank')}
-                          title="Kliknij, aby otworzyć w pełnym rozmiarze"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 p-2 rounded bg-slate-950/80 border border-slate-800 text-[11px] text-slate-300">
-                        <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
-                        <div className="flex-1 truncate">
-                          <span className="font-semibold text-slate-200">{msg.file.name}</span>
-                          <span className="text-slate-500 ml-2">({msg.file.type || 'plik'})</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {visibleMessages.map((msg, i) => (
+            <ChatMessageItem key={firstVisibleIndex + i} msg={msg} idx={firstVisibleIndex + i} />
+          ))}
 
           {isLoading && (
             <div className="flex flex-wrap items-center justify-between gap-2 text-slate-300 p-3 bg-slate-900/70 rounded-lg border border-slate-800">

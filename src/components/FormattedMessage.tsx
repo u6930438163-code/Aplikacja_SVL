@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { Copy, Check, Terminal, Sigma, Sparkles, RefreshCw, FileText, Table as TableIcon } from 'lucide-react';
 import {
   InteractiveChartRenderer,
@@ -11,6 +12,22 @@ import {
   TriadCoreOrbitsChart
 } from './InteractiveChartRenderer';
 import { TechnicalBlueprintSVG } from './TechnicalBlueprintSVG';
+
+// Pamięć podręczna KaTeX: te same wzory nie są składane ponownie przy kolejnych renderach
+const KATEX_CACHE_LIMIT = 400;
+const katexCache = new Map<string, string>();
+function renderKatexCached(expr: string, opts: { displayMode: boolean; throwOnError: boolean }): string {
+  const key = (opts.displayMode ? 'D:' : 'I:') + expr;
+  const hit = katexCache.get(key);
+  if (hit !== undefined) return hit;
+  const html = katex.renderToString(expr, opts);
+  if (katexCache.size >= KATEX_CACHE_LIMIT) {
+    const oldest = katexCache.keys().next().value;
+    if (oldest !== undefined) katexCache.delete(oldest);
+  }
+  katexCache.set(key, html);
+  return html;
+}
 
 /**
  * Normalizes SVG data URIs (including utf8 percent-encoded SVGs with parentheses)
@@ -61,6 +78,7 @@ const ImageWithFallback: React.FC<{ src: string; alt?: string; className?: strin
       )}
       <img
         src={normalizedSrc}
+        decoding="async"
         alt={alt || 'Wizualizacja SVL'}
         className={`max-w-full max-h-[460px] w-auto h-auto rounded-xl border border-slate-800 shadow-xl shadow-black/40 group-hover:border-emerald-500/50 transition-all duration-300 bg-slate-950 ${
           loading ? 'hidden' : 'block'
@@ -201,7 +219,7 @@ function renderInlineContent(text: string): React.ReactNode[] {
     const mathContent = match[1] ?? match[2];
     if (mathContent !== undefined) {
       try {
-        const html = katex.renderToString(mathContent.trim(), {
+        const html = renderKatexCached(mathContent.trim(), {
           displayMode: false,
           throwOnError: false,
         });
@@ -461,7 +479,7 @@ const BlockMath: React.FC<{ math: string }> = ({ math }) => {
   let hasError = false;
 
   try {
-    renderedHtml = katex.renderToString(cleanMath, {
+    renderedHtml = renderKatexCached(cleanMath, {
       displayMode: true,
       throwOnError: false,
     });
@@ -555,7 +573,7 @@ const CodeBlock: React.FC<{ language: string; code: string }> = ({ language, cod
 /**
  * Main Markdown, Table, Image, SVG, and LaTeX Math Parser component
  */
-export const FormattedMessage: React.FC<FormattedMessageProps> = ({ content, className = '' }) => {
+const FormattedMessageImpl: React.FC<FormattedMessageProps> = ({ content, className = '' }) => {
   if (!content) return null;
 
   // Step 1: Split into top-level blocks by block math ($$...$$, \[...\], or \begin{equation}...), code fences (```...```), or raw <svg>...</svg>
@@ -1014,3 +1032,6 @@ export const FormattedMessage: React.FC<FormattedMessageProps> = ({ content, cla
     </div>
   );
 };
+
+/** Memoizowany parser — przelicza się tylko, gdy zmieni się treść wiadomości. */
+export const FormattedMessage = React.memo(FormattedMessageImpl);

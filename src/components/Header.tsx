@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { useVisibleInterval } from '../hooks/usePolling';
 import { DataStore, OPERATOR_NAME, SYS_VERSION, generateTextReport, generatePythonMonolith } from '../kernel/svlKernel';
 import { Terminal, Copy, Download, RefreshCw, ShieldCheck, Cpu, Clock, Check, ExternalLink } from 'lucide-react';
+
+const formatClock = () => new Date().toLocaleTimeString('pl-PL', { hour12: false }) + ' CEST';
+
+/** Zegar odświeża tylko siebie — reszta nagłówka nie renderuje się co sekundę. */
+const LiveClock: React.FC = () => {
+  const [currentTime, setCurrentTime] = useState<string>(formatClock);
+  // Interwał pauzuje w ukrytej karcie i odświeża się natychmiast po powrocie
+  useVisibleInterval(() => setCurrentTime(formatClock()), 1000);
+  return <span className="text-amber-300 tabular-nums">{currentTime || 'CZAS SYNCHR.'}</span>;
+};
 
 interface HeaderProps {
   dataStore: DataStore;
@@ -15,7 +26,6 @@ export const Header: React.FC<HeaderProps> = ({ dataStore, onReset, onShowReport
   const [copied, setCopied] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
-  const [currentTime, setCurrentTime] = useState<string>('');
 
   const rawVersion =
     dataStore.config?.sys_version ||
@@ -23,15 +33,6 @@ export const Header: React.FC<HeaderProps> = ({ dataStore, onReset, onShowReport
     SYS_VERSION;
   const formattedVersion = String(rawVersion).startsWith('v') ? String(rawVersion) : `v${rawVersion}`;
 
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setCurrentTime(now.toLocaleTimeString('pl-PL', { hour12: false }) + ' CEST');
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleCopyMonolith = () => {
     const py = generatePythonMonolith(dataStore);
@@ -131,7 +132,7 @@ export const Header: React.FC<HeaderProps> = ({ dataStore, onReset, onShowReport
 
           <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded">
             <Clock className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-amber-300">{currentTime || 'CZAS SYNCHR.'}</span>
+            <LiveClock />
           </div>
 
           {/* Quick Action buttons */}

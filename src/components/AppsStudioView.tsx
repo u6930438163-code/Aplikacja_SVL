@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import {
   LayoutGrid,
   Terminal,
@@ -126,11 +127,7 @@ export const AppsStudioView: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    fetchApps();
-    const interval = setInterval(fetchApps, 6000);
-    return () => clearInterval(interval);
-  }, []);
+  usePolling(fetchApps, 6000);
 
   // Fetch files when selected app changes
   const fetchAppFiles = async (appId: string) => {

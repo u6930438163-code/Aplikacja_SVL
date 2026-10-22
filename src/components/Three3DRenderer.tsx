@@ -22,6 +22,7 @@ export const Three3DRenderer: React.FC<Three3DRendererProps> = ({ jsonData }) =>
 
     // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
     mountRef.current.appendChild(renderer.domElement);
 
@@ -41,8 +42,9 @@ export const Three3DRenderer: React.FC<Three3DRendererProps> = ({ jsonData }) =>
     scene.add(new THREE.AmbientLight(0x404040));
 
     // Animation loop
+    let frameId = 0;
     const animate = () => {
-      requestAnimationFrame(animate);
+      frameId = requestAnimationFrame(animate);
       cube.rotation.x += 0.01;
       cube.rotation.y += 0.01;
       controls.update();
@@ -50,10 +52,15 @@ export const Three3DRenderer: React.FC<Three3DRendererProps> = ({ jsonData }) =>
     };
     animate();
 
-    // Cleanup
+    // Cleanup: zatrzymanie pętli i zwolnienie zasobów GPU
+    const mountEl = mountRef.current;
     return () => {
+      cancelAnimationFrame(frameId);
+      controls.dispose();
+      geometry.dispose();
+      material.dispose();
       renderer.dispose();
-      mountRef.current?.removeChild(renderer.domElement);
+      if (renderer.domElement.parentNode === mountEl) mountEl?.removeChild(renderer.domElement);
     };
   }, [jsonData]);
 
