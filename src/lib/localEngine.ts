@@ -9,8 +9,8 @@
  *   ale działa lokalnie i bez gotowych formułek.
  */
 
-// Wartość wstępna — do potwierdzenia po sprawdzeniu aktualnej wersji biblioteki
-export const WEBLLM_CDN_URL = 'https://esm.run/@mlc-ai/web-llm';
+// Wersja przypięta, żeby nowe wydanie biblioteki nie zmieniło działania aplikacji bez testów
+export const WEBLLM_CDN_URL = 'https://esm.run/@mlc-ai/web-llm@0.2.85';
 
 export interface LocalModelOption {
   id: string;
@@ -20,12 +20,31 @@ export interface LocalModelOption {
   description: string;
 }
 
+// Identyfikatory z listy modeli WebLLM (prebuiltAppConfig). Rozmiary pobierania są przybliżone.
 export const LOCAL_MODELS: LocalModelOption[] = [
   {
     id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
-    label: 'Qwen2.5 1.5B',
+    label: 'Qwen2.5 1.5B (telefon)',
     sizeMB: 1000,
-    description: 'Wstępny wybór — do potwierdzenia.',
+    description: 'Domyślny wybór na telefon: rozsądna jakość po polsku przy umiarkowanym rozmiarze.',
+  },
+  {
+    id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+    label: 'Qwen2.5 0.5B (lekki)',
+    sizeMB: 400,
+    description: 'Dla słabszych telefonów: szybki i mały, ale wyraźnie słabszy po polsku.',
+  },
+  {
+    id: 'Qwen3-1.7B-q4f16_1-MLC',
+    label: 'Qwen3 1.7B (mocny telefon)',
+    sizeMB: 1300,
+    description: 'Lepszy po polsku niż Qwen2.5 1.5B; potrzebuje ok. 2 GB pamięci karty graficznej.',
+  },
+  {
+    id: 'Qwen3-4B-q4f16_1-MLC',
+    label: 'Qwen3 4B (komputer)',
+    sizeMB: 2500,
+    description: 'Najlepszy po polsku z tej listy; na komputer z dobrą kartą graficzną (ok. 3,5 GB).',
   },
 ];
 
@@ -59,6 +78,9 @@ let state: LocalEngineState = {
 const listeners = new Set<Listener>();
 let engine: any = null;
 let loadingPromise: Promise<void> | null = null;
+/** Czy karta graficzna obsługuje shader-f16 (wtedy działają warianty q4f16, inaczej q4f32). */
+let gpuSupportsF16 = true;
+let activeRuntimeModelId: string | null = null;
 
 function setState(patch: Partial<LocalEngineState>) {
   state = { ...state, ...patch };
@@ -96,6 +118,7 @@ export async function checkLocalEngineSupport(): Promise<{ ok: boolean; reason?:
     if (!adapter) {
       return { ok: false, reason: 'WebGPU jest dostępne, ale przeglądarka nie udostępniła karty graficznej tego urządzenia.' };
     }
+    gpuSupportsF16 = !!adapter.features?.has?.('shader-f16');
   } catch (e: any) {
     return { ok: false, reason: `Nie udało się uruchomić WebGPU: ${e?.message || e}` };
   }
@@ -121,7 +144,10 @@ export function loadLocalEngine(modelId: string = DEFAULT_LOCAL_MODEL_ID): Promi
       if (engine && typeof engine.unload === 'function') {
         try { await engine.unload(); } catch {}
       }
-      engine = await webllm.CreateMLCEngine(modelId, {
+      // Bez shader-f16 używamy wariantu q4f32 tego samego modelu
+      const runtimeId = gpuSupportsF16 ? modelId : modelId.replace('q4f16_1', 'q4f32_1');
+      activeRuntimeModelId = runtimeId;
+      engine = await webllm.CreateMLCEngine(runtimeId, {
         initProgressCallback: (report: { progress?: number; text?: string }) => {
           setState({
             status: 'loading',
@@ -133,7 +159,18 @@ export function loadLocalEngine(modelId: string = DEFAULT_LOCAL_MODEL_ID): Promi
       setState({ status: 'ready', progress: 1, message: 'Model gotowy', error: null });
     } catch (e: any) {
       engine = null;
-      setState({ status: 'error', message: '', error: `Nie udało się uruchomić modelu: ${e?.message || e}` });
+      const name = String(e?.name || '');
+      const msg = String(e?.message || e);
+      const friendly = /WebGPU/i.test(name + msg)
+        ? 'Przeglądarka nie udostępnia WebGPU dla tego urządzenia, więc lokalny model nie może działać.'
+        : /ShaderF16/i.test(name + msg)
+        ? 'Karta graficzna nie obsługuje wymaganego formatu (shader-f16). Wybierz inny model.'
+        : /memory|out of memory|OOM|allocation/i.test(msg)
+        ? 'Za mało pamięci na tym urządzeniu dla wybranego modelu — wybierz mniejszy.'
+        : /fetch|network|Failed to load|Load failed/i.test(msg)
+        ? 'Nie udało się pobrać plików modelu — sprawdź połączenie i spróbuj ponownie.'
+        : 'Nie udało się uruchomić modelu.';
+      setState({ status: 'error', message: '', error: `${friendly} (Szczegóły: ${msg.slice(0, 160)})` });
     } finally {
       loadingPromise = null;
     }
@@ -151,21 +188,29 @@ export async function generateLocalReply(
   opts: { onToken?: (textSoFar: string) => void; maxTokens?: number; temperature?: number } = {}
 ): Promise<string> {
   if (!isLocalEngineReady()) throw new Error('Lokalny model nie jest uruchomiony.');
+  const isQwen3 = /^Qwen3-/i.test(activeRuntimeModelId || '');
   const stream = await engine.chat.completions.create({
     messages,
     stream: true,
     temperature: opts.temperature ?? 0.7,
     max_tokens: opts.maxTokens ?? 320,
+    // Qwen3 ma tryb "myślenia" — w czacie wyłączamy go, żeby odpowiadał od razu
+    ...(isQwen3 ? { extra_body: { enable_thinking: false } } : {}),
   });
   let text = '';
   for await (const chunk of stream) {
     const delta = chunk?.choices?.[0]?.delta?.content || '';
     if (delta) {
       text += delta;
-      opts.onToken?.(text);
+      opts.onToken?.(stripThinking(text));
     }
   }
-  return text.trim();
+  return stripThinking(text).trim();
+}
+
+/** Usuwa ewentualne bloki <think>…</think> (także niedomknięty w trakcie pisania). */
+function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<think>[\s\S]*$/, '').trimStart();
 }
 
 // ---------------------------------------------------------------------------
@@ -185,25 +230,31 @@ export const LOCAL_AGENT_PERSONAS: Record<string, string> = {
 };
 
 /** Buduje rozmowę dla agenta z ostatnich wiadomości czatu. */
+/** Źródła, których nie podajemy modelowi jako przykładu rozmowy (gotowe szablony i komunikaty błędów). */
+function isTemplateSource(zrodlo?: string): boolean {
+  if (!zrodlo) return false;
+  return zrodlo.startsWith('without_nlp') || zrodlo.startsWith('Nowy_system') || zrodlo === 'blad' || zrodlo === 'system';
+}
+
 export function buildAgentConversation(
   agent: string,
-  history: Array<{ agent: string; tekst: string }>,
+  history: Array<{ agent: string; tekst: string; zrodlo?: string }>,
   operatorName: string,
   latestOperatorText: string,
   maxHistory = 8
 ): LocalChatMessage[] {
   const persona = LOCAL_AGENT_PERSONAS[agent] || LOCAL_AGENT_PERSONAS.Alex;
   const recent = history
-    .filter((m) => m && m.tekst && m.agent !== 'System')
+    .filter((m) => m && m.tekst && m.agent !== 'System' && !isTemplateSource(m.zrodlo))
     .slice(-maxHistory)
     .map<LocalChatMessage>((m) =>
       m.agent === operatorName
-        ? { role: 'user', content: m.tekst.slice(0, 800) }
+        ? { role: 'user', content: `Tata: ${m.tekst.slice(0, 800)}` }
         : m.agent === agent
         ? { role: 'assistant', content: m.tekst.slice(0, 800) }
         : { role: 'user', content: `[${m.agent} napisał(a)]: ${m.tekst.slice(0, 400)}` }
     );
-  const turns: LocalChatMessage[] = [...recent, { role: 'user', content: latestOperatorText }];
+  const turns: LocalChatMessage[] = [...recent, { role: 'user', content: `Tata: ${latestOperatorText}` }];
 
   // Szablony czatu części modeli wymagają naprzemiennych ról — scalamy sąsiednie wpisy tej samej roli
   const merged: LocalChatMessage[] = [];

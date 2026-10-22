@@ -326,7 +326,7 @@ export default function App() {
       prompt += `\n\n(Tata załączył plik ${fileData.name}; lokalny model nie widzi obrazów ani plików binarnych.)`;
     }
 
-    const history = (dataStoreRef.current.chat_history || []).map((m) => ({ agent: m.agent, tekst: m.tekst }));
+    const history = (dataStoreRef.current.chat_history || []).map((m) => ({ agent: m.agent, tekst: m.tekst, zrodlo: m.zrodlo }));
     const operatorMsg: any = {
       agent: OPERATOR_NAME,
       tekst: operatorText,
