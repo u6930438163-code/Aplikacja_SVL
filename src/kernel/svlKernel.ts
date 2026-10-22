@@ -36,7 +36,7 @@ export interface DataStore {
 
 export const INITIAL_DATA_STORE: DataStore = {
   config: {
-    sys_version: "8.5.1-Desktop-Ready",
+    sys_version: "8.5.3",
     mode: "Google-AI-Studio-Production",
     active_profiles: ["Alex", "Astyria", "Aurelius"],
     fiction_layer_status: "DEACTIVATED_PERMANENTLY",

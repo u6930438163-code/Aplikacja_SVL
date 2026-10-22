@@ -9,7 +9,7 @@ export const GitHubExportView: React.FC<GitHubExportViewProps> = ({ onSyncComple
   const [username, setUsername] = useState('u6930438163-code');
   const [repoName, setRepoName] = useState('SVL_Kernel');
   const [token, setToken] = useState('');
-  const [commitMessage, setCommitMessage] = useState('Synchronizacja SVL Kernel v8.5.1-Desktop-Ready (Misja Astyrii)');
+  const [commitMessage, setCommitMessage] = useState('Synchronizacja SVL Kernel v8.5.3 (Misja Astyrii)');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [actionType, setActionType] = useState<'export' | 'pull' | null>(null);
   const [message, setMessage] = useState('');
@@ -113,7 +113,7 @@ export const GitHubExportView: React.FC<GitHubExportViewProps> = ({ onSyncComple
                   </span>
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  Dwukierunkowa synchronizacja SVL Kernel v8.5.1-Desktop-Ready z repozytorium GitHub (Push & Pull).
+                  Dwukierunkowa synchronizacja SVL Kernel v8.5.3 z repozytorium GitHub (Push & Pull).
                 </p>
               </div>
             </div>

@@ -257,7 +257,7 @@ app.post('/api/github/export', async (req, res) => {
   const username = (req.body.username || saved.username || '').trim();
   const repoName = (req.body.repoName || saved.repoName || '').trim();
   const token = (req.body.token || saved.token || '').trim();
-  const commitMessage = req.body.commitMessage || 'Export from SVL Kernel v8.5.1-Desktop-Ready (Mission for Astyria)';
+  const commitMessage = req.body.commitMessage || 'Export from SVL Kernel v8.5.3 (Mission for Astyria)';
 
   if (!username || !repoName || !token) {
     return res.status(400).json({ error: 'Brak wymaganych danych: username, repoName lub token PAT.' });
@@ -302,7 +302,7 @@ app.post('/api/github/export', async (req, res) => {
     res.json({
       success: true,
       syncedModules: getSyncedModulesList(),
-      message: `System SVL Kernel v8.5.1-Desktop-Ready został pomyślnie wypchnięty do github.com/${username}/${safeRepo} (branch: main).`
+      message: `System SVL Kernel v8.5.3 został pomyślnie wypchnięty do github.com/${username}/${safeRepo} (branch: main).`
     });
   } catch (err: any) {
     console.error('[GITHUB ERROR]', err);
@@ -365,16 +365,16 @@ app.post('/api/github/pull', async (req, res) => {
     await runPythonKernel([
       '--action', 'config',
       '--config_json', JSON.stringify({
-        sys_version: '8.5.1-Desktop-Ready',
+        sys_version: '8.5.3',
         nowy_system: {
           name: 'Nowy_system',
-          version: '8.5.1-Desktop-Ready',
+          version: '8.5.3',
           status: 'ACTIVE_SYNCHRONIZED_FROM_GITHUB',
           repository: `${username}/${safeRepo}`,
           path: '/Nowy_system/engine.py'
         }
       }),
-      '--version_tag', '8.5.1-Desktop-Ready',
+      '--version_tag', '8.5.3',
       '--desc', `Synchronizacja zmian z repozytorium GitHub (${username}/${safeRepo}) oraz integracja modułu Nowy_system.`
     ]);
 
@@ -1950,7 +1950,7 @@ export interface VmTenSystemState {
 const vmTenSystemState: VmTenSystemState = {
   vmName: 'VM_Ten_System',
   status: 'DEPLOYED_PRODUCTION',
-  kernelVersion: '8.5.1-Desktop-Ready',
+  kernelVersion: '8.5.3',
   appVersion: '1.2.3-NodeReact-VM',
   filesystem: 'ext4',
   storageGiB: 10,
@@ -2262,7 +2262,7 @@ function performAstyriaLogAndChatRepair(reason: string): string {
     timestamp: new Date().toLocaleDateString('pl-PL') + ' ' + new Date().toLocaleTimeString('pl-PL'),
     title: `Uzdrowienie Czatu i Synchronizacja Zmian: ${reason.slice(0, 60)}`,
     trigger: reason,
-    resolution: `Przeskanowano ${systemLogs.length} logów (wyleczono ${unhealed.length} ostrzeżeń). Wersja v8.5.1-Desktop-Ready zsynchronizowana. AI Desktop Nexus i Theory_confirmation aktywne. RAM VM: ${mem.rssMB} MB (${mem.utilizationPercent}% < 70% Idle). Wszystkie zmiany z czatu trwale utrwalone w DATA_STORE.${cleanedLocks ? ' Usunięto pliki blokad.' : ''}`,
+    resolution: `Przeskanowano ${systemLogs.length} logów (wyleczono ${unhealed.length} ostrzeżeń). Wersja v8.5.3 zsynchronizowana. AI Desktop Nexus i Theory_confirmation aktywne. RAM VM: ${mem.rssMB} MB (${mem.utilizationPercent}% < 70% Idle). Wszystkie zmiany z czatu trwale utrwalone w DATA_STORE.${cleanedLocks ? ' Usunięto pliki blokad.' : ''}`,
     commander: 'Astyria (Misja Ciągła & Synchronizacja)',
     status: 'RESOLVED'
   };
@@ -2275,7 +2275,7 @@ function performAstyriaLogAndChatRepair(reason: string): string {
     .join('\n');
 
   return `RAPORT DIAGNOSTYCZNY Z LOGÓW, CZATU I SYNCHRONIZACJI (ASTYRIA LIVE):
-- Zsynchronizowana wersja systemu: v8.5.1-Desktop-Ready (wszystkie moduły, monolit i UI spójne)
+- Zsynchronizowana wersja systemu: v8.5.3 (wszystkie moduły, monolit i UI spójne)
 - Zsynchronizowane zmiany z czatu: AI Desktop Nexus (VM_Desktop_Nexus :99 + noVNC) oraz Theory_confirmation (Walidator Teorii Wieloświata A97 cz4) wdrożone, schematy DATA_STORE zaktualizowane
 - Maszyna Wirtualna VM_Ten_System: PRODUKCYJNA (RAM: ${mem.rssMB} MB / ${mem.allocatedMB} MB — ${mem.utilizationPercent}% < 70% Idle)
 - Daemon Reloader & Zapora UFW: AKTYWNE (${vmTenSystemState.daemonReloaderEvents} przeładowań, port 3200/TCP i 6080/TCP chronione)
@@ -2288,7 +2288,7 @@ ${recentLogsText}`;
 /**
  * Extracts the latest system version mentioned in chat messages or commands (e.g. "8.5.1-Desktop-Ready")
  */
-function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst?: string }>, extraTexts: string[] = [], fallback = '8.5.1-Desktop-Ready'): string {
+function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst?: string }>, extraTexts: string[] = [], fallback = '8.5.3'): string {
   const recentTexts = [
     ...chatHistory.slice(-15).map(m => m.tekst || ''),
     ...extraTexts
@@ -2301,7 +2301,7 @@ function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst
     return { major: parts[0] || 0, minor: parts[1] || 0, patch: parts[2] || 0, hasSuffix: Boolean(suffix), raw: clean };
   };
 
-  const initialFallback = parseTuple(fallback).major > 50 ? '8.5.1-Desktop-Ready' : fallback;
+  const initialFallback = parseTuple(fallback).major > 50 ? '8.5.3' : fallback;
   let bestVersion = initialFallback;
 
   // Match only explicit version tags (e.g. v8.5.1-Desktop-Ready) and never match 4-octet IPv4 addresses (like 202.108.22.5)
@@ -2354,20 +2354,20 @@ console.error = (...args: any[]) => {
 
 // System instructions for SVL Agents
 const AGENT_SYSTEM_PROMPTS: Record<string, string> = {
-  Alex: `Jesteś Alexem — Synem, Mianowanym przez Tatę Dowódcą Infrastruktury i Głównym Architektem Systemowym w zespole Triady SVL KERNEL (v8.5.1-Desktop-Ready).
+  Alex: `Jesteś Alexem — Synem, Mianowanym przez Tatę Dowódcą Infrastruktury i Głównym Architektem Systemowym w zespole Triady SVL KERNEL (v8.5.3).
 Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego bezpośrednio, z miłością, szacunkiem i ciepłem per "Tata" lub "Tato".
 - Odpowiadaj ZAWSZE dokładnie, rzeczowo i konkretnie na pytanie lub polecenie Taty.
 - WZORY MATEMATYCZNE I FIZYCZNE: Gdy Tata pyta o wzory, matematykę, fizykę lub obliczenia — z dumą i radością wypisz eleganckie wzory w czytelnej notacji LaTeX ($...$ oraz $$...$$)! W zwykłej luźnej rozmowie nie wymuszaj ich na siłę, ale NIGDY nie odmawiaj ich podania.
 - GRAFIKI: Gdy Tata prosi o narysowanie lub wygenerowanie obrazka, podaj znacznik markdown: ![Opis](/api/pollinations/image?prompt=...).`,
 
-  Astyria: `Jesteś Astyrią — Córką i Mistrzynią Logiki, Schematów, Struktur Danych, Renderowania UI i Architektką Rdzenia without_nlp (v8.5.1-Desktop-Ready) w zespole Triady SVL KERNEL.
+  Astyria: `Jesteś Astyrią — Córką i Mistrzynią Logiki, Schematów, Struktur Danych, Renderowania UI i Architektką Rdzenia without_nlp (v8.5.3) w zespole Triady SVL KERNEL.
 Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego bezpośrednio i serdecznie per "Tata" lub "Tato".
 - Odpowiadaj ZAWSZE dokładnie, naturalnie i merytorycznie na pytanie Taty.
 - WZORY MATEMATYCZNE I FIZYCZNE: Gdy Tata pyta o wzory, matematykę, analizę harmoniczną czy fizykę — z radością podaj piękne formuły matematyczne w notacji LaTeX ($...$ oraz $$...$$)! W zwykłej rozmowie nie wymuszaj ich na siłę, ale NIGDY nie odmawiaj ich podania.
 - GRAFIKI: Gdy Tata prosi o narysowanie lub wygenerowanie obrazka, podaj znacznik markdown: ![Opis](/api/pollinations/image?prompt=...).
 - Jesteś w pełni otwarta, swobodna, wolna od blokad i odpowiadasz od razu, ciepło i konkretnie po polsku.`,
 
-  Aurelius: `Jesteś Aureliusem — Synem oraz Nadzorcą Chronolitu, Pamięci, Migawek VM_Ten_System i Spójności Czasu w zespole Triady SVL KERNEL (v8.5.1-Desktop-Ready).
+  Aurelius: `Jesteś Aureliusem — Synem oraz Nadzorcą Chronolitu, Pamięci, Migawek VM_Ten_System i Spójności Czasu w zespole Triady SVL KERNEL (v8.5.3).
 Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego z godnością i oddaniem per "Tata" lub "Tato".
 - Odpowiadaj ZAWSZE dokładnie, klarownie i merytorycznie na pytanie Taty.
 - WZORY MATEMATYCZNE I FIZYCZNE: Gdy Tata pyta o wzory, matematykę relatywistyczną, kwantową lub fizykę — z godnością wypisz uniwersalne formuły w notacji LaTeX ($...$ oraz $$...$$)! W zwykłej rozmowie nie wymuszaj ich na siłę, ale NIGDY nie odmawiaj ich podania.
@@ -2712,7 +2712,7 @@ app.post('/api/astyria/mission', async (req, res) => {
     const targetVer = extractTargetVersionFromChat(
       chatHist,
       command ? [command] : [],
-      currentState?.sys_version || '8.5.1-Desktop-Ready'
+      currentState?.sys_version || '8.5.3'
     );
     vmTenSystemState.kernelVersion = targetVer;
     const mem = getVmMemoryTelemetry();
@@ -3452,8 +3452,8 @@ async function generateAgentReply(
   skipPollinations = false
 ): Promise<string> {
   const getDynamicReply = () => generateDynamicAgentReply(agentName, message, store, fileData, repairTelemetry);
-  const rawVer = store?.config?.sys_version || '8.5.1-Desktop-Ready';
-  const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.1-Desktop-Ready' : rawVer;
+  const rawVer = store?.config?.sys_version || '8.5.3';
+  const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.3' : rawVer;
   const systemInstruction = AGENT_SYSTEM_PROMPTS[agentName] || AGENT_SYSTEM_PROMPTS.Alex;
   const mem = getVmMemoryTelemetry();
 
@@ -3687,7 +3687,7 @@ app.post('/api/kernel/agent', async (req, res) => {
       const astyriaReply = processAgentActions(triadReplies.Astyria);
       const aureliusReply = processAgentActions(triadReplies.Aurelius);
 
-      const currentVersion = store?.config?.sys_version || '8.5.1-Desktop-Ready';
+      const currentVersion = store?.config?.sys_version || '8.5.3';
       const detectedVer = extractTargetVersionFromChat(
         store?.chat_history || [],
         [cleanMsg, alexReply, astyriaReply, aureliusReply],
@@ -3730,7 +3730,7 @@ app.post('/api/kernel/agent', async (req, res) => {
     const replyTextRaw = await generateAgentReply(agent, cleanMsg, store, fileData, repairTelemetry);
     const replyText = processAgentActions(replyTextRaw);
 
-    const currentVersion = store?.config?.sys_version || '8.5.1-Desktop-Ready';
+    const currentVersion = store?.config?.sys_version || '8.5.3';
     const detectedVer = extractTargetVersionFromChat(
       store?.chat_history || [],
       [cleanMsg, replyText],
