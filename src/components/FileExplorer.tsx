@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { Download, FileArchive, FileText, RefreshCw, FolderOpen, ShieldCheck } from 'lucide-react';
 
 interface FileInfo {
@@ -26,11 +27,7 @@ export const FileExplorer: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    fetchFiles();
-    const interval = setInterval(fetchFiles, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  usePolling(fetchFiles, 5000);
 
   return (
     <div className="flex-1 bg-slate-950 flex flex-col font-mono">

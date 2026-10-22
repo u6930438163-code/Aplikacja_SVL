@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { DataStore, SYS_VERSION } from '../kernel/svlKernel';
 import {
   GitBranch,
@@ -63,11 +64,7 @@ export const AstyriaMissionView: React.FC<AstyriaMissionViewProps> = ({
     } catch {}
   };
 
-  useEffect(() => {
-    fetchMissionStatus();
-    const interval = setInterval(fetchMissionStatus, 4000);
-    return () => clearInterval(interval);
-  }, []);
+  usePolling(fetchMissionStatus, 4000);
 
   const handleToggleContinuous = async () => {
     const nextState = !continuousEnabled;

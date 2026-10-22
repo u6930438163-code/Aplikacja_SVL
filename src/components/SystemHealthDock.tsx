@@ -1,28 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { ShieldCheck, Cpu, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 
 export const SystemHealthDock: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [status, setStatus] = useState({ system: 'NOMINAL', repairs: 0 });
 
-  // Poll status occasionally
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const res = await fetch('/api/infrastructure/status');
-        if (res.ok) {
-          const data = await res.json();
-          setStatus({
-            system: data.healedIncidents.length > 5 ? 'STABILNY' : 'NOMINALNY',
-            repairs: data.healedIncidents.length
-          });
-        }
-      } catch {}
-    };
-    fetchStatus();
-    const timer = setInterval(fetchStatus, 10000);
-    return () => clearInterval(timer);
-  }, []);
+  // Lekki endpoint zdrowia (bez odczytu jądra Python); pauzuje w ukrytej karcie
+  usePolling(async () => {
+    const res = await fetch('/api/infrastructure/health', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const repairs = Number(data.healedCount) || 0;
+    setStatus((prev) => {
+      const system = repairs > 5 ? 'STABILNY' : 'NOMINALNY';
+      return prev.system === system && prev.repairs === repairs ? prev : { system, repairs };
+    });
+  }, 15000);
 
   return (
     <div className={`fixed bottom-4 right-4 z-50 transition-all ${isExpanded ? 'w-64' : 'w-auto'}`}>

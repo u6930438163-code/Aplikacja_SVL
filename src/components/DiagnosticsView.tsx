@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useVisibleInterval } from '../hooks/usePolling';
 import { DataStore, SYS_VERSION, OPERATOR_NAME } from '../kernel/svlKernel';
 import { Activity, ShieldCheck, Cpu, HardDrive, Zap, CheckCircle2, Terminal, AlertTriangle, BarChart2, Sparkles } from 'lucide-react';
 import {
@@ -14,14 +15,10 @@ interface DiagnosticsViewProps {
 export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({ dataStore }) => {
   const [pulseTick, setPulseTick] = useState(0);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setPulseTick((p) => (p + 1) % 100);
-    }, 1200);
-    return () => clearInterval(timer);
-  }, []);
+  useVisibleInterval(() => setPulseTick((p) => (p + 1) % 100), 1200);
 
-  const totalChars = JSON.stringify(dataStore).length;
+  // Serializacja całego magazynu tylko gdy dane się zmienią, nie przy każdym "pulsie"
+  const totalChars = useMemo(() => JSON.stringify(dataStore).length, [dataStore]);
   const configKeys = Object.keys(dataStore.config).length;
   const msgCount = dataStore.chat_history.length;
   const updateCount = dataStore.update_history.length;

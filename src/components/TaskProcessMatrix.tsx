@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { usePolling, useVisibleInterval } from '../hooks/usePolling';
 import {
   Cpu,
   Play,
@@ -108,15 +109,10 @@ export const TaskProcessMatrix: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    fetchInfraData();
-    const interval = setInterval(fetchInfraData, 2500);
-    return () => clearInterval(interval);
-  }, [logFilter]);
+  usePolling(fetchInfraData, 3000, { deps: [logFilter] });
 
   // Periodic heartbeat animation for process CPU jitter
-  useEffect(() => {
-    const interval = setInterval(() => {
+  useVisibleInterval(() => {
       setProcesses((prev) =>
         prev.map((p) => {
           if (p.status === 'RUNNING') {
@@ -127,9 +123,7 @@ export const TaskProcessMatrix: React.FC = () => {
           return p;
         })
       );
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  }, 2000);
 
   const handleKill = (pid: number) => {
     setProcesses((prev) =>

@@ -93,3 +93,31 @@ input, select, textarea {
   overflow-x: auto;
   overflow-y: hidden;
 }
+
+/* ------------------------------------------------------------------ */
+/* Wydajność renderowania                                             */
+/* ------------------------------------------------------------------ */
+
+/* Przeglądarka pomija układ i malowanie wiadomości poza ekranem */
+.svl-chat-msg {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+}
+
+/* Płynne przewijanie list na ekranach dotykowych, bez "przeciągania" całej strony */
+.overflow-y-auto,
+.overflow-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Szanujemy ustawienie "ogranicz animacje" w systemie */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -6,6 +6,8 @@ import { GoogleGenAI } from '@google/genai';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import zlib from 'zlib';
+import crypto from 'crypto';
 import { withoutNlpEngine } from './src/lib/withoutNlpEngine';
 
 dotenv.config();
@@ -22,6 +24,27 @@ const PYTHON_SCRIPT_PATH = path.resolve('svl_kernel.py');
 // Configure high body limit (50MB) for file uploads, images, logs, and kernel snapshots
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Kompresja odpowiedzi JSON z API (bez zewnętrznych zależności).
+// Duże odpowiedzi (stan jądra, logi, listy) są typowo 5–10x mniejsze po gzip.
+function acceptsGzip(req: express.Request): boolean {
+  return /\bgzip\b/i.test(String(req.headers['accept-encoding'] || ''));
+}
+
+app.use('/api', (req, res, next) => {
+  if (!acceptsGzip(req)) return next();
+  const originalJson = res.json.bind(res);
+  res.json = ((body: any) => {
+    if (res.getHeader('Content-Encoding')) return originalJson(body);
+    const text = JSON.stringify(body);
+    if (text === undefined || text.length < 1400) return originalJson(body);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Encoding', 'gzip');
+    res.append('Vary', 'Accept-Encoding');
+    return res.send(zlib.gzipSync(text, { level: 5 }));
+  }) as typeof res.json;
+  next();
+});
 
 // Catch payload too large or invalid body before routing
 app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -2356,12 +2379,21 @@ Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego z godnoś
  */
 let pythonExecutionChain: Promise<any> = Promise.resolve();
 
+// Akcje tylko do odczytu — nie unieważniają pamięci podręcznej stanu jądra
+const READ_ONLY_KERNEL_ACTIONS = new Set(['state', 'report']);
+
 function runPythonKernel(args: string[]): Promise<string> {
+  const actionIdx = args.indexOf('--action');
+  const action = actionIdx >= 0 ? args[actionIdx + 1] : '';
+  const mutates = !READ_ONLY_KERNEL_ACTIONS.has(action);
+
   const nextTask = pythonExecutionChain.catch(() => {}).then(async () => {
     try {
       const { stdout, stderr } = await execFileAsync('python3', [PYTHON_SCRIPT_PATH, ...args], {
         timeout: 10000,
+        maxBuffer: 64 * 1024 * 1024,
       });
+      if (mutates) invalidateKernelStateCache();
       if (stderr && stderr.trim().length > 0) {
         pushSystemLog('warn', 'KERNEL', `[PYTHON KERNEL STDERR]: ${stderr.trim()}`);
       }
@@ -2376,38 +2408,97 @@ function runPythonKernel(args: string[]): Promise<string> {
   return nextTask;
 }
 
+/**
+ * Pamięć podręczna stanu jądra Python.
+ *
+ * Wcześniej: nowy proces python3 co 2,5 s przy każdym odpytywaniu (~50–100 ms + ~100 KB JSON).
+ * Teraz: stan jest odczytywany ponownie tylko, gdy plik svl_kernel.py się zmienił
+ * (mtime/rozmiar — działa też przy atomowym os.replace, którego fs.watch nie widzi),
+ * po każdej akcji modyfikującej, albo najpóźniej co 30 s. Równoległe żądania
+ * współdzielą jedno wywołanie Pythona.
+ */
 let cachedKernelState: any = null;
 let lastKernelStateTime = 0;
+let kernelFileSignature = '';
+let kernelStateInflight: Promise<any> | null = null;
+const KERNEL_STATE_MAX_AGE_MS = 30_000;
 
-/**
- * Helper to fetch current Python kernel state
- */
-async function getPythonKernelState(forceRefresh = false) {
-  const now = Date.now();
-  if (!forceRefresh && cachedKernelState && (now - lastKernelStateTime < 2500)) {
-    return cachedKernelState;
-  }
+function invalidateKernelStateCache() {
+  lastKernelStateTime = 0;
+}
+
+async function readKernelFileSignature(): Promise<string> {
   try {
-    const output = await runPythonKernel(['--action', 'state']);
-    const parsed = JSON.parse(output);
-    if (parsed) {
-      cachedKernelState = parsed;
-      lastKernelStateTime = Date.now();
-    }
-    return cachedKernelState;
-  } catch (err) {
-    return cachedKernelState;
+    const st = await fs.promises.stat(PYTHON_SCRIPT_PATH);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return '';
   }
 }
 
-// 1. GET Current State from Python Kernel
-app.get('/api/kernel/state', async (_req, res) => {
+async function getPythonKernelState(forceRefresh = false) {
+  if (!forceRefresh && cachedKernelState && lastKernelStateTime > 0) {
+    const fresh = Date.now() - lastKernelStateTime < KERNEL_STATE_MAX_AGE_MS;
+    if (fresh && (await readKernelFileSignature()) === kernelFileSignature) {
+      return cachedKernelState;
+    }
+  }
+
+  if (kernelStateInflight && !forceRefresh) return kernelStateInflight;
+
+  const task = (async () => {
+    try {
+      const signatureBefore = await readKernelFileSignature();
+      const output = await runPythonKernel(['--action', 'state']);
+      const parsed = JSON.parse(output);
+      if (parsed) {
+        cachedKernelState = parsed;
+        lastKernelStateTime = Date.now();
+        kernelFileSignature = signatureBefore;
+      }
+      return cachedKernelState;
+    } catch {
+      return cachedKernelState;
+    } finally {
+      if (kernelStateInflight === task) kernelStateInflight = null;
+    }
+  })();
+  kernelStateInflight = task;
+  return task;
+}
+
+/** Gotowa do wysłania forma stanu: JSON, gzip i ETag liczone raz na zmianę stanu. */
+let kernelStateWire: { source: any; etag: string; json: Buffer; gzip: Buffer } | null = null;
+
+function getKernelStateWire(state: any) {
+  if (kernelStateWire && kernelStateWire.source === state) return kernelStateWire;
+  const json = Buffer.from(JSON.stringify(state), 'utf-8');
+  const etag = `"ks-${crypto.createHash('sha1').update(json).digest('base64url')}"`;
+  kernelStateWire = { source: state, etag, json, gzip: zlib.gzipSync(json, { level: 6 }) };
+  return kernelStateWire;
+}
+
+// 1. GET Current State from Python Kernel (ETag + gzip: niezmieniony stan = 304 bez treści)
+app.get('/api/kernel/state', async (req, res) => {
   try {
     const state = await getPythonKernelState();
-    if (state) {
-      return res.json(state);
+    if (!state) {
+      return res.status(500).json({ error: 'Nie udało się pobrać stanu z jądra Python' });
     }
-    return res.status(500).json({ error: 'Nie udało się pobrać stanu z jądra Python' });
+    const wire = getKernelStateWire(state);
+    res.setHeader('ETag', wire.etag);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Vary', 'Accept-Encoding');
+    const inm = req.headers['if-none-match'];
+    if (inm && String(inm).split(/\s*,\s*/).includes(wire.etag)) {
+      return res.status(304).end();
+    }
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    if (acceptsGzip(req)) {
+      res.setHeader('Content-Encoding', 'gzip');
+      return res.end(wire.gzip);
+    }
+    return res.end(wire.json);
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }
@@ -2460,6 +2551,18 @@ app.post('/api/kernel/report', async (_req, res) => {
 });
 
 // --- INFRASTRUCTURE & VM_TEN_SYSTEM API ENDPOINTS (COMMANDER: ALEX & ASTYRIA) ---
+
+// GET Lekki puls zdrowia dla SystemHealthDock (bez odczytu jądra Python i bez pełnej listy incydentów)
+app.get('/api/infrastructure/health', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  return res.json({
+    healedCount: healedIncidents.length,
+    totalLogsCount: systemLogs.length,
+    autoRepairEnabled,
+    continuousMissionEnabled,
+    uptimeSeconds: Math.round(process.uptime()),
+  });
+});
 
 // GET Infrastructure status & self-healing metrics
 app.get('/api/infrastructure/status', async (_req, res) => {
@@ -3665,9 +3768,77 @@ app.post('/api/kernel/agent', async (req, res) => {
 // Setup Vite middleware in dev or static files in prod
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static('dist'));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve('dist', 'index.html'));
+    const distDir = path.resolve('dist');
+    const mimeByExt: Record<string, string> = {
+      '.js': 'text/javascript; charset=utf-8',
+      '.mjs': 'text/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.html': 'text/html; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.json': 'application/json; charset=utf-8',
+      '.wasm': 'application/wasm',
+      '.txt': 'text/plain; charset=utf-8',
+    };
+
+    // Wstępnie skompresowane pliki (.br / .gz) tworzone przez vite.config.ts
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+      const urlPath = decodeURIComponent(req.path);
+      const ext = path.extname(urlPath).toLowerCase();
+      if (!mimeByExt[ext]) return next();
+      const filePath = path.join(distDir, urlPath);
+      if (!filePath.startsWith(distDir + path.sep)) return next();
+
+      const accept = String(req.headers['accept-encoding'] || '');
+      const variants: Array<[string, string]> = [];
+      if (/\bbr\b/.test(accept)) variants.push(['br', '.br']);
+      if (/\bgzip\b/.test(accept)) variants.push(['gzip', '.gz']);
+
+      for (const [encoding, suffix] of variants) {
+        const compressed = filePath + suffix;
+        if (fs.existsSync(compressed)) {
+          res.setHeader('Content-Encoding', encoding);
+          res.setHeader('Content-Type', mimeByExt[ext]);
+          res.setHeader('Vary', 'Accept-Encoding');
+          res.setHeader(
+            'Cache-Control',
+            urlPath.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'
+          );
+          return res.sendFile(compressed);
+        }
+      }
+      next();
+    });
+
+    app.use(
+      express.static(distDir, {
+        index: false,
+        setHeaders: (res, filePath) => {
+          // Pliki z hashem w nazwie nigdy się nie zmieniają — przeglądarka trzyma je rok
+          res.setHeader(
+            'Cache-Control',
+            filePath.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache'
+          );
+        },
+      })
+    );
+
+    // index.html zawsze świeży (wskazuje na aktualne pliki z hashem)
+    let indexHtml: Buffer | null = null;
+    let indexHtmlGz: Buffer | null = null;
+    app.get('*', (req, res) => {
+      if (!indexHtml) {
+        indexHtml = fs.readFileSync(path.join(distDir, 'index.html'));
+        indexHtmlGz = zlib.gzipSync(indexHtml, { level: 9 });
+      }
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Vary', 'Accept-Encoding');
+      if (acceptsGzip(req) && indexHtmlGz) {
+        res.setHeader('Content-Encoding', 'gzip');
+        return res.end(indexHtmlGz);
+      }
+      return res.end(indexHtml);
     });
   } else {
     const vite = await createViteServer({

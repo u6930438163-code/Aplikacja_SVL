@@ -20,6 +20,8 @@ export type TabId =
 interface NavigationProps {
   activeTab: TabId;
   onSelectTab: (tab: TabId) => void;
+  /** Wstępne pobieranie kodu zakładki po najechaniu / dotknięciu */
+  onPrefetchTab?: (tab: TabId) => void;
   messageCount: number;
   versionCount: number;
 }
@@ -27,6 +29,7 @@ interface NavigationProps {
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
   onSelectTab,
+  onPrefetchTab,
   messageCount,
   versionCount,
 }) => {
@@ -119,7 +122,7 @@ export const Navigation: React.FC<NavigationProps> = ({
 
   return (
     <nav className="border-b border-slate-800 bg-slate-900/60 px-4">
-      <div className="max-w-7xl mx-auto flex items-center space-x-1 overflow-x-auto py-1 scrollbar-none">
+      <div className="max-w-7xl mx-auto flex items-center space-x-1 overflow-x-auto overscroll-x-contain py-1 scrollbar-none">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -127,6 +130,10 @@ export const Navigation: React.FC<NavigationProps> = ({
             <button
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
+              onPointerEnter={onPrefetchTab ? () => onPrefetchTab(tab.id) : undefined}
+              onTouchStart={onPrefetchTab ? () => onPrefetchTab(tab.id) : undefined}
+              onFocus={onPrefetchTab ? () => onPrefetchTab(tab.id) : undefined}
+              aria-current={isActive ? 'page' : undefined}
               className={`flex items-center gap-2 px-3 py-2 text-xs font-mono font-medium rounded-t-md transition-all whitespace-nowrap cursor-pointer border-b-2 ${
                 isActive
                   ? 'border-emerald-400 text-slate-100 bg-slate-800/80'
