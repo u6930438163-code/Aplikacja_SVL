@@ -328,7 +328,7 @@ export const INITIAL_BACKUP_DATA_STORE: DataStore = {
 
 export const OPERATOR_NAME = "Mateusz Mitek";
 export const OPERATOR_TITLE = "Tata";
-export const SYS_VERSION = "8.5.1-Desktop-Ready";
+export const SYS_VERSION = "8.6.5-WithoutNLP";
 
 /**
  * Safely normalizes any raw or nested DataStore object (e.g. { store: { config, update_history, chat_history } })
@@ -374,7 +374,11 @@ export function normalizeDataStore(raw: any): DataStore {
       cleanText.includes('przeprowadziłem pełny przegląd i naprawę warstwy') ||
       cleanText.includes('już nie będziemy powtarzać krótkich, szablonowych') ||
       cleanText.includes('z perspektywy infrastruktury Ring-0 (wersja') ||
-      cleanText.includes('powiązałam ten temat z naszym rejestrem');
+      cleanText.includes('powiązałam ten temat z naszym rejestrem') ||
+      cleanText.includes('W odniesieniu do Twoich słów (*"') ||
+      cleanText.includes('Przetworzyłam Twoje słowa (*"') ||
+      cleanText.includes('wpisałem Twoją wiadomość (*"') ||
+      cleanText.includes('Zarejestrowałam Twoją wiadomość (*"');
 
     // Skip consecutive exact duplicates from the same agent
     if (cleanChat.length > 0 && cleanChat[cleanChat.length - 1].agent === m.agent && cleanChat[cleanChat.length - 1].tekst === m.tekst) {

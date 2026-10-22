@@ -119,18 +119,18 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   };
 
   const DEFAULT_QUICK_PROMPTS = [
-    "Misja dla astyria usuń całe nlp i wdróż projekt without_nlp",
+    "Cześć! Pogadajmy swobodnie na luzie — co u was słychać?",
+    "Porozmawiajmy o przetwarzaniu wektorowym w 128-bitowej hiperprzestrzeni",
+    "Napiszcie coś ciekawego na luzie!",
+    "Pokaż status jądra HyperOS i raport systemowy",
     "Pokaż wzór Eulera i transformatę Fouriera z projektu without_nlp",
     "Wygenerujcie raport z analizy Stargate Universe pełny",
     "Alex, zoptymalizuj procesy runtime i szynę I/O",
-    "Astyria, zweryfikuj DATA_STORE i strukturę danych",
-    "Aurelius, odnotuj nową cezurę w Chronolicie",
-    "Generuj pełny raport ASCII jądra Monolitu",
   ];
 
   const [quickPrompts, setQuickPrompts] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem('svl_operator_quick_prompts_v2');
+      const stored = localStorage.getItem('svl_operator_quick_prompts_v3');
       if (stored) return JSON.parse(stored);
     } catch (e) {}
     return DEFAULT_QUICK_PROMPTS;
@@ -141,7 +141,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   const saveQuickPrompts = (updated: string[]) => {
     setQuickPrompts(updated);
     try {
-      localStorage.setItem('svl_operator_quick_prompts_v2', JSON.stringify(updated));
+      localStorage.setItem('svl_operator_quick_prompts_v3', JSON.stringify(updated));
     } catch (e) {}
   };
 

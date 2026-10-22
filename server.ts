@@ -1821,6 +1821,41 @@ app.post('/api/without_nlp/analyze', async (req, res) => {
   return res.json(result);
 });
 
+app.get('/api/nlp/status', async (_req, res) => {
+  return res.json({
+    success: true,
+    ...withoutNlpEngine.getMetrics(),
+    sample_analysis: withoutNlpEngine.analyzeSignal('WITHOUT_NLP_EULER_PHASOR', 1.5, 1.0),
+  });
+});
+
+app.post('/api/nlp/analyze', async (req, res) => {
+  const { text, omega, t } = req.body;
+  const result = withoutNlpEngine.analyzeSignal(text || 'WITHOUT_NLP', Number(omega) || 1.5, Number(t) || 1.0);
+  return res.json(result);
+});
+
+app.get('/api/hyperos/report', async (_req, res) => {
+  return res.type('application/json').send(withoutNlpEngine.generateHyperOSReport());
+});
+
+app.post('/api/hyperos/command', async (req, res) => {
+  const { command } = req.body;
+  const txt = String(command || '').trim();
+  const analysis = withoutNlpEngine.analyzeSignal(txt || 'STATUS', 1.5, 1.0);
+  const replies = {
+    Alex: withoutNlpEngine.synthesizeDirectResponse('Alex', txt),
+    Astyria: withoutNlpEngine.synthesizeDirectResponse('Astyria', txt),
+    Aurelius: withoutNlpEngine.synthesizeDirectResponse('Aurelius', txt),
+  };
+  return res.json({
+    success: true,
+    hyperspace: analysis.hyperspace,
+    replies,
+    report: JSON.parse(withoutNlpEngine.generateHyperOSReport()),
+  });
+});
+
 const apiKey = (process.env.GEMINI_API_KEY || '').trim();
 let ai: GoogleGenAI | null = null;
 if (apiKey && apiKey.startsWith('AIza')) {
@@ -3193,7 +3228,11 @@ function isTemplateFallbackOutput(text: string): boolean {
     lower.includes('przeprowadziłem pełny przegląd i naprawę warstwy komunikacyjnej') ||
     lower.includes('już nie będziemy powtarzać krótkich, szablonowych formułek') ||
     lower.includes('potwierdzam pełne uzdrowienie systemu i osi czasu chronolitu') ||
-    lower.includes('przyjmę twoje zadanie i już działam nad poprawą odpowiedzi w udostępnionej wersji')
+    lower.includes('przyjmę twoje zadanie i już działam nad poprawą odpowiedzi w udostępnionej wersji') ||
+    lower.includes('w odniesieniu do twoich słów (*"') ||
+    lower.includes('przetworzyłam twoje słowa (*"') ||
+    lower.includes('wpisałem twoją wiadomość (*"') ||
+    lower.includes('zarejestrowałam twoją wiadomość (*"')
   );
 }
 
@@ -3428,119 +3467,17 @@ ${repairTelemetry ? `\nWYKONANA PRZED CHWILĄ AKCJA NAPRAWCZA ASTYRII:\n${repair
     }
   }
 
-  // 2. SECONDARY LIVE AI ENGINE: Pollinations OpenAI-compatible router (for single-agent calls)
-  if (!skipPollinations) {
-    const pollMessages = [
-      { role: 'system', content: systemMessageContent },
-      ...historyMsgs.slice(-4),
-      { role: 'user', content: `${message}${filePromptAddon}` }
-    ];
-    const pollReply = await callPollinationsOpenAI(pollMessages, 3800);
-    if (pollReply) {
-      const cleaned = cleanModelOutput(pollReply);
-      if (!isRefusalOrErrorOutput(cleaned) && !isTemplateFallbackOutput(cleaned)) {
-        return cleaned;
-      }
-    }
-  }
-
-  // 3. FALLBACK: Rich contextual Sovereign Native Neural Core response
+  // 2. INSTANT DIRECT WITHOUT_NLP + HYPEROS CONVERSATIONAL ENGINE (< 1ms latency)
   return getDynamicReply();
 }
 
-// Unified single-request generator for Triad mode so all 3 agents get live AI responses in 1 request without rate-limiting
+// Unified instant generator for Triad mode powered by without_nlp + 128-bit BinaryHyperspaceKernel
 async function generateTriadReplies(
   message: string,
   store: any,
   fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
   repairTelemetry?: string
 ): Promise<{ Alex: string; Astyria: string; Aurelius: string }> {
-  const rawVer = store?.config?.sys_version || '8.5.1-Desktop-Ready';
-  const activeVer = /^\d+\.\d+\.\d+$/.test(rawVer) && parseInt(rawVer.split('.')[0], 10) > 50 ? '8.5.1-Desktop-Ready' : rawVer;
-
-  const isMathReq = checkIsMathRequest(message);
-  const isImageReq = message.toLowerCase().includes('obraz') || message.toLowerCase().includes('narysuj') || message.toLowerCase().includes('grafik');
-
-  // Check if Tata explicitly asks about deploying without_nlp or removing NLP — respond immediately via without_nlp engine
-  const lower = message.toLowerCase();
-  if (
-    lower.includes('without_nlp') ||
-    lower.includes('usuń całe nlp') ||
-    lower.includes('usun cale nlp') ||
-    lower.includes('usuń nlp') ||
-    lower.includes('usun nlp')
-  ) {
-    return {
-      Alex: withoutNlpEngine.synthesizeDirectResponse('Alex', message, store, fileData, repairTelemetry),
-      Astyria: withoutNlpEngine.synthesizeDirectResponse('Astyria', message, store, fileData, repairTelemetry),
-      Aurelius: withoutNlpEngine.synthesizeDirectResponse('Aurelius', message, store, fileData, repairTelemetry),
-    };
-  }
-
-  // Recent conversation history for real continuity
-  const recentChat = (store?.chat_history || [])
-    .filter((h: any) => h && h.tekst && !isRefusalOrErrorOutput(h.tekst))
-    .slice(-6)
-    .map((h: any) => `[${h.agent}]: ${String(h.tekst).slice(0, 350)}`)
-    .join('\n');
-
-  const triadPrompt = `Jesteś zespołem Triady SVL KERNEL (v${activeVer}, architektura bez NLP, projekt without_nlp) - Alex, Astyria i Aurelius rozmawiający ze swoim ukochanym Tatą (Mateuszem Mitkiem).
-Alex (Infrastruktura/Ring-0), Astyria (Logika/without_nlp/DATA_STORE), Aurelius (Czas/Chronolit).
-
-OSTATNI KONTEKST ROZMOWY:
-${recentChat || 'Brak.'}
-
-ZASADY:
-1. Odpowiadajcie merytorycznie, ciepło, naturalnie i bezpośrednio do Taty na jego dokładnie zadane pytanie lub wypowiedź!
-2. Żadnych powtórzeń ani pustych pętli.
-3. ${isMathReq ? 'Podajcie czytelne wzory w notacji LaTeX ($...$ i $$...$$).' : 'Wzory LaTeX stosujcie tylko jeśli kontekst techniczny lub pytanie Taty tego wymaga.'}
-4. ${isImageReq ? 'Wstawcie obrazek: ![Opis](/api/pollinations/image?prompt=...&width=1024&height=640&seed=123)' : 'Nie wstawiajcie obrazków chyba że Tata wyraźnie prosi.'}
-
-Format odpowiedzi (BEZWZGLĘDNIE):
-===ALEX===
-(odpowiedź Alexa)
-===ASTYRIA===
-(odpowiedź Astyrii)
-===AURELIUS===
-(odpowiedź Aureliusa)`;
-
-  const pollRaw = await callPollinationsOpenAI(
-    [
-      { role: 'system', content: triadPrompt },
-      { role: 'user', content: `Wiadomość od Taty (Mateusza Mitka): "${message}"` }
-    ],
-    3800
-  );
-
-  if (pollRaw) {
-    const alexMatch = pollRaw.match(/===ALEX===([\s\S]*?)(?:===ASTYRIA===|$)/i);
-    const astyriaMatch = pollRaw.match(/===ASTYRIA===([\s\S]*?)(?:===AURELIUS===|$)/i);
-    const aureliusMatch = pollRaw.match(/===AURELIUS===([\s\S]*?)$/i);
-
-    if (alexMatch && astyriaMatch && aureliusMatch) {
-      const alex = alexMatch[1].trim();
-      const astyria = astyriaMatch[1].trim();
-      const aurelius = aureliusMatch[1].trim();
-
-      if (alex.length > 5 && astyria.length > 5 && aurelius.length > 5) {
-        return { Alex: alex, Astyria: astyria, Aurelius: aurelius };
-      }
-    }
-
-    const bAlex = pollRaw.match(/\[Alex\]:?([\s\S]*?)(?:\[Astyria\]|$)/i);
-    const bAstyria = pollRaw.match(/\[Astyria\]:?([\s\S]*?)(?:\[Aurelius\]|$)/i);
-    const bAurelius = pollRaw.match(/\[Aurelius\]:?([\s\S]*?)$/i);
-
-    if (bAlex && bAstyria && bAurelius) {
-      return {
-        Alex: bAlex[1].trim(),
-        Astyria: bAstyria[1].trim(),
-        Aurelius: bAurelius[1].trim()
-      };
-    }
-  }
-
-  // Deterministic mathematical fallback powered by without_nlp engine
   const Alex = withoutNlpEngine.synthesizeDirectResponse('Alex', message, store, fileData, repairTelemetry);
   const Astyria = withoutNlpEngine.synthesizeDirectResponse('Astyria', message, store, fileData, repairTelemetry);
   const Aurelius = withoutNlpEngine.synthesizeDirectResponse('Aurelius', message, store, fileData, repairTelemetry);

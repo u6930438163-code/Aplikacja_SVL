@@ -28,12 +28,13 @@ import { WithoutNlpView } from './components/WithoutNlpView';
 import { GitHubExportView } from './components/GitHubExportView';
 import { withoutNlpEngine } from './lib/withoutNlpEngine';
 
-const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_6_0_without_nlp';
+const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_6_5_without_nlp_hyperos';
 
 export default function App() {
   const [rawDataStore, setRawDataStore] = useState<DataStore>(() => {
     try {
       localStorage.removeItem('svl_kernel_datastore_v8_5_1_desktop_ready');
+      localStorage.removeItem('svl_kernel_datastore_v8_6_0_without_nlp');
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);

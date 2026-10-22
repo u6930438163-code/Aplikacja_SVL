@@ -478,6 +478,70 @@ export const WithoutNlpView: React.FC = () => {
               </div>
             </div>
 
+            {/* 128-Bit BinaryHyperspaceKernel (HyperOS) Live Panel */}
+            <div className="bg-slate-950 border border-cyan-500/30 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
+                <div className="flex items-center gap-2 text-xs text-cyan-300 font-bold">
+                  <Cpu className="w-4 h-4 text-cyan-400" />
+                  <span>128-bit Binary Hyperspace Kernel (HyperOS)</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/60 font-mono font-bold">
+                  INTENCJA: {analysis.hyperspace.intent} ({Math.round(analysis.hyperspace.confidence * 100)}% dopasowania)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Wymiary:</span>
+                  <strong className="text-slate-100">128 bitów</strong>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Norma euklidesowa:</span>
+                  <strong className="text-emerald-300">{analysis.hyperspace.euclideanNorm}</strong>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Aktywne bity (1s):</span>
+                  <strong className="text-cyan-300">{analysis.hyperspace.bitsCount1} / 128</strong>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800">
+                  <span className="text-slate-400 block text-[10px]">Podobieństwo:</span>
+                  <strong className="text-indigo-300">{analysis.hyperspace.confidence}</strong>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400">Podgląd wektora (pierwsze 32 bity):</span>
+                <div className="font-mono text-[11px] text-cyan-300 bg-slate-900 p-2 rounded border border-slate-800 tracking-widest break-all">
+                  {analysis.hyperspace.vectorPreview}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <span>Kotwice Hamminga:</span>
+                  {Object.entries(analysis.hyperspace.scores).map(([k, v]) => (
+                    <span key={k} className="px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 font-mono text-[10px]">
+                      {k}: <strong className="text-cyan-300">{v.toFixed(2)}</strong>
+                    </span>
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    const blob = new Blob([withoutNlpEngine.generateHyperOSReport()], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'hyperos_manifest_report.json';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-2.5 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-200 rounded font-bold text-[10px] cursor-pointer transition"
+                >
+                  Pobierz Raport HyperOS JSON
+                </button>
+              </div>
+            </div>
+
             {synthesizedReply && (
               <div className="bg-slate-950 border border-emerald-500/30 rounded-xl p-3.5 space-y-2">
                 <div className="flex items-center gap-2 text-xs text-emerald-400 font-bold border-b border-slate-800 pb-1.5">
