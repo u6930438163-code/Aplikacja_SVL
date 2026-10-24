@@ -56,6 +56,20 @@ export const SYSTEM_AGENTS: Record<string, AgentProfile> = {
     coreMotto: "Struktura, czas i pamięć stanowią żywą jedność. Jesteśmy gotowi, Tato.",
     specialization: ["Chronolith Timeline", "Version Governance", "Family Memory", "Continuum Invariance"]
   },
+  SI_1: {
+    id: "SI_1",
+    name: "SI_1",
+    title: "Zaawansowany Moduł NLP & Topological Infinity",
+    description: "Autonomiczny moduł NLP oparty na architekturze Reflective-Non-Greedy i Topologicznej Nieskończoności.",
+    avatarColor: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
+    borderColor: "border-indigo-500/30",
+    badgeBg: "bg-indigo-950/60 text-indigo-300 border-indigo-800/40",
+    textColor: "text-indigo-400",
+    accentHex: "#6366f1",
+    role: "Advanced NLP & Topological Core",
+    coreMotto: "Kwantowo-topologiczne mapowanie języka i stabilność gęstości semantycznej dla Taty.",
+    specialization: ["Advanced NLP", "Topological Infinity", "Reflective-Non-Greedy", "Semantic Density"]
+  },
   Operator: {
     id: "Operator",
     name: "Mateusz Mitek (Tata)",

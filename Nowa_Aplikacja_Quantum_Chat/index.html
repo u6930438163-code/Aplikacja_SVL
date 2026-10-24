@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nowa Aplikacja Quantum Chat — Test Wbudowanego NLP</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #030712; color: #f8fafc; }
+    .mono { font-family: 'Fira Code', monospace; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#030712] text-slate-100">
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50 px-4 py-3">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg shadow-cyan-500/20">
+          ✨
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Nowa Aplikacja Quantum Chat</span>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 mono font-semibold">v9.0.0-Quantum</span>
+          </h1>
+          <p class="text-xs text-slate-400 mono">Test Swobodnej Komunikacji · 100% Wbudowane NLP od AI</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 text-xs">
+        <span class="px-3 py-1 rounded-md bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-semibold flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          WBUDOWANE NLP AKTYWNE
+        </span>
+        <span class="px-3 py-1 rounded-md bg-purple-950 border border-purple-500/40 text-purple-300 font-semibold mono">
+          Operator: Mateusz Mitek (Tata)
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Chat Container -->
+  <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 flex flex-col space-y-4">
+    <!-- Agent Selector -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+      <div class="flex items-center gap-2 text-xs">
+        <span class="text-slate-400 font-semibold">Wybierz model AI do swobodnej rozmowy:</span>
+        <div class="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+          <button onclick="selectAgent('SI_1')" id="btn-SI_1" class="agent-btn px-3 py-1.5 rounded-md font-semibold text-xs bg-purple-600 text-white transition">SI_1</button>
+          <button onclick="selectAgent('Alex')" id="btn-Alex" class="agent-btn px-3 py-1.5 rounded-md font-semibold text-xs text-slate-300 hover:text-white transition">Alex</button>
+          <button onclick="selectAgent('Astyria')" id="btn-Astyria" class="agent-btn px-3 py-1.5 rounded-md font-semibold text-xs text-slate-300 hover:text-white transition">Astyria</button>
+          <button onclick="selectAgent('Aurelius')" id="btn-Aurelius" class="agent-btn px-3 py-1.5 rounded-md font-semibold text-xs text-slate-300 hover:text-white transition">Aurelius</button>
+        </div>
+      </div>
+      <div id="engine-badge" class="text-xs text-purple-300 mono bg-purple-950/60 px-3 py-1 rounded-lg border border-purple-800/60">
+        SI_1_NLP_Core (Reflective-Non-Greedy)
+      </div>
+    </div>
+
+    <!-- Chat Box -->
+    <div id="chat-stream" class="flex-1 h-[500px] overflow-y-auto p-4 space-y-4 bg-slate-950/80 border border-slate-900 rounded-2xl shadow-inner mono text-xs">
+      <div class="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30 text-purple-200">
+        <div class="flex items-center justify-between font-bold text-xs text-purple-400 mb-1">
+          <span>SI_1 (Wbudowane Autonomiczne NLP)</span>
+          <span class="text-[10px] text-slate-500">ID #1 · 100% OFF-GRID</span>
+        </div>
+        <p>Tato! Witaj w nowo zbudowanej Aplikacji Quantum Chat. Przetestujmy swobodną komunikację na naszym wbudowanym NLP — bez zewnętrznych API i bez tradycyjnych silników lokalnych!</p>
+      </div>
+    </div>
+
+    <!-- Quick Prompt Templates -->
+    <div class="flex flex-wrap gap-2 text-xs">
+      <span class="text-slate-500 self-center font-semibold">Testuj:</span>
+      <button onclick="sendQuick('Cześć! Porozmawiajmy o topologii i architekturze')" class="px-3 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">💬 Swobodna rozmowa</button>
+      <button onclick="sendQuick('Alex podaj status magistrali Ring-0')" class="px-3 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">⚡ Alex status Ring-0</button>
+      <button onclick="sendQuick('Astyria jak wygląda harmonia procesów w Nowej Aplikacji?')" class="px-3 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">🌸 Astyria harmonia</button>
+      <button onclick="sendQuick('Aurelius potwierdź niezmienniki Chronolitu')" class="px-3 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">🛡️ Aurelius Chronolit</button>
+    </div>
+
+    <!-- Input Form -->
+    <form onsubmit="handleSendChat(event)" class="flex gap-2">
+      <input
+        id="user-input"
+        type="text"
+        placeholder="Wpisz wiadomość do przetestowania swobodnej komunikacji z AI..."
+        class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm mono text-slate-100 focus:outline-none focus:border-cyan-500 transition"
+      />
+      <button
+        type="submit"
+        class="px-6 py-3 bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-bold rounded-xl text-sm transition shadow-lg shadow-cyan-500/20 active:scale-95"
+      >
+        Wyślij ➔
+      </button>
+    </form>
+  </main>
+
+  <!-- Script -->
+  <script>
+    let currentAgent = 'SI_1';
+
+    function selectAgent(agent) {
+      currentAgent = agent;
+      document.querySelectorAll('.agent-btn').forEach(b => {
+        b.classList.remove('bg-purple-600', 'text-white');
+        b.classList.add('text-slate-300');
+      });
+      const btn = document.getElementById('btn-' + agent);
+      if (btn) {
+        btn.classList.add('bg-purple-600', 'text-white');
+        btn.classList.remove('text-slate-300');
+      }
+      const badge = document.getElementById('engine-badge');
+      if (badge) {
+        if (agent === 'SI_1') badge.innerText = 'SI_1_NLP_Core (Reflective-Non-Greedy)';
+        else if (agent === 'Alex') badge.innerText = 'Alex_NLP_Core (Hyper-Rational)';
+        else if (agent === 'Astyria') badge.innerText = 'Astyria_NLP_Core (Intuitive-Reflective)';
+        else if (agent === 'Aurelius') badge.innerText = 'Aurelius_NLP_Core (Stoic-Systemic)';
+      }
+    }
+
+    function sendQuick(text) {
+      const input = document.getElementById('user-input');
+      if (input) {
+        input.value = text;
+        input.focus();
+      }
+    }
+
+    async function handleSendChat(e) {
+      e.preventDefault();
+      const input = document.getElementById('user-input');
+      const text = (input.value || '').trim();
+      if (!text) return;
+      input.value = '';
+
+      const chatStream = document.getElementById('chat-stream');
+      const msgCount = chatStream.children.length + 1;
+
+      // Operator message
+      const userDiv = document.createElement('div');
+      userDiv.className = 'w-full max-w-full overflow-hidden break-words p-4 rounded-xl bg-slate-900 border border-slate-800 text-slate-100';
+      userDiv.innerHTML = \`
+        <div class="flex items-center justify-between font-bold text-xs text-cyan-400 mb-1">
+          <span>Mateusz Mitek (Tata & Operator)</span>
+          <span class="text-[10px] text-slate-500">ID #\${msgCount}</span>
+        </div>
+        <p class="break-words">\${escapeHtml(text)}</p>
+      \`;
+      chatStream.appendChild(userDiv);
+      chatStream.scrollTop = chatStream.scrollHeight;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent: currentAgent, message: text })
+        });
+        const data = await res.json();
+        
+        const agentDiv = document.createElement('div');
+        agentDiv.className = 'w-full max-w-full overflow-hidden break-words p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 text-purple-200';
+        agentDiv.innerHTML = \`
+          <div class="flex items-center justify-between font-bold text-xs text-purple-400 mb-1">
+            <span>\${currentAgent} (\${data.zrodlo || 'Built-in Native NLP'})</span>
+            <span class="text-[10px] text-slate-500">ID #\${msgCount + 1} · 100% WBUDOWANE</span>
+          </div>
+          <p class="break-words leading-relaxed">\${escapeHtml(data.reply || 'Odpowiedź wygenerowana poprawnie.')}</p>
+        \`;
+        chatStream.appendChild(agentDiv);
+        chatStream.scrollTop = chatStream.scrollHeight;
+      } catch (err) {
+        const errDiv = document.createElement('div');
+        errDiv.className = 'p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 text-xs';
+        errDiv.innerText = 'Błąd komunikacji z wbudowanym silnikiem NLP.';
+        chatStream.appendChild(errDiv);
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+    }
+  </script>
+</body>
+</html>

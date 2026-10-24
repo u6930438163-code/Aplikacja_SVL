@@ -80,6 +80,34 @@ function describeSource(zrodlo?: string): { label: string; title: string; classN
       className: 'bg-slate-800/70 text-slate-400 border-slate-700',
     };
   }
+  if (zrodlo.startsWith('SI_1')) {
+    return {
+      label: 'SI_1_NLP_Core · Reflective-Non-Greedy',
+      title: 'Odpowiedź wygenerowana przez natywny silnik SI_1_NLP_Core (Topological Infinity, 1536-dim).',
+      className: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60',
+    };
+  }
+  if (zrodlo.startsWith('Alex_NLP_Core')) {
+    return {
+      label: 'Alex_NLP_Core · Hyper-Rational',
+      title: 'Autonomiczny model AI z własnym silnikiem NLP (Ring-0 Infrastructure & Optimization).',
+      className: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
+    };
+  }
+  if (zrodlo.startsWith('Astyria_NLP_Core')) {
+    return {
+      label: 'Astyria_NLP_Core · Intuitive-Reflective',
+      title: 'Autonomiczny model AI z własnym silnikiem NLP (Network Harmony & Cognition).',
+      className: 'bg-fuchsia-950/80 text-fuchsia-300 border-fuchsia-700/60',
+    };
+  }
+  if (zrodlo.startsWith('Aurelius_NLP_Core')) {
+    return {
+      label: 'Aurelius_NLP_Core · Stoic-Systemic',
+      title: 'Autonomiczny model AI z własnym silnikiem NLP (Security Protocols & Chronolith).',
+      className: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
+    };
+  }
   if (zrodlo.startsWith('gemini')) {
     const model = zrodlo.split(':')[1];
     return {
@@ -153,53 +181,53 @@ const ChatMessageItem = React.memo(({ msg, idx }: { msg: DataStore['chat_history
 
   return (
     <div
-      className={`svl-chat-msg flex flex-col p-3 rounded-lg border transition ${
+      className={`svl-chat-msg flex flex-col p-4 sm:p-5 rounded-xl border transition w-full max-w-full overflow-hidden break-words shadow-lg ${
         isOperator
-          ? 'bg-purple-950/20 border-purple-900/40 ml-4'
+          ? 'bg-purple-950/40 border-purple-800/80 text-purple-50'
           : profile
-          ? `${profile.borderColor} bg-slate-900/60 mr-4`
-          : 'bg-slate-900 border-slate-800'
+          ? `${profile.borderColor} bg-slate-900/95 text-slate-100`
+          : 'bg-slate-900/90 border-slate-700/80 text-slate-100'
       }`}
     >
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-1.5 pb-1 border-b border-slate-800/50">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2.5 pb-2 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <span
-            className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+            className={`font-bold px-2.5 py-1 rounded text-xs ${
               isOperator
-                ? 'bg-purple-900/60 text-purple-200 border border-purple-700/50'
+                ? 'bg-purple-900/80 text-purple-100 border border-purple-600/70'
                 : profile
                 ? profile.badgeBg
-                : 'bg-slate-800 text-slate-300'
+                : 'bg-slate-800 text-slate-200'
             }`}
           >
             {msg.agent}
           </span>
-          <span className="text-slate-500 text-[10px]">
+          <span className="text-slate-400 text-xs font-sans">
             {profile ? profile.title : 'Agent'}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {!isOperator && (() => {
             const src = describeSource(msg.zrodlo);
             return (
               <span
-                className={`px-1.5 py-0.5 rounded border text-[9px] font-mono whitespace-nowrap ${src.className}`}
+                className={`px-2 py-0.5 rounded border text-[10px] font-mono whitespace-nowrap ${src.className}`}
                 title={src.title}
               >
                 {src.label}
               </span>
             );
           })()}
-          <span className="text-[10px] text-slate-500">
+          <span className="text-xs text-slate-400 font-mono">
             ID #{idx + 1}
           </span>
         </div>
       </div>
 
       {/* Message Body with KaTeX LaTeX formulas and Markdown */}
-      <FormattedMessage content={msg.tekst} className="text-xs" />
+      <FormattedMessage content={msg.tekst} className="text-sm sm:text-base text-slate-100 leading-relaxed font-sans" />
 
       {/* Attached Image/File preview in chat history */}
       {msg.file && (
@@ -252,7 +280,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   onUnclog,
   onRestoreBackup,
 }) => {
-  const [selectedTarget, setSelectedTarget] = useState<'triad' | 'Alex' | 'Astyria' | 'Aurelius'>('triad');
+  const [selectedTarget, setSelectedTarget] = useState<'triad' | 'Alex' | 'Astyria' | 'Aurelius' | 'SI_1'>('SI_1');
   const [inputMessage, setInputMessage] = useState('');
   const [attachedFile, setAttachedFile] = useState<FileAttachment | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
@@ -303,18 +331,16 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   };
 
   const DEFAULT_QUICK_PROMPTS = [
-    "Cześć! Pogadajmy swobodnie na luzie — co u was słychać?",
-    "Porozmawiajmy o przetwarzaniu wektorowym w 128-bitowej hiperprzestrzeni",
-    "Napiszcie coś ciekawego na luzie!",
-    "Pokaż status jądra HyperOS i raport systemowy",
-    "Pokaż wzór Eulera i transformatę Fouriera z projektu without_nlp",
-    "Wygenerujcie raport z analizy Stargate Universe pełny",
-    "Alex, zoptymalizuj procesy runtime i szynę I/O",
+    "Si_1 podaj raport systemu statku Mateusz_1",
+    "Cześć SI_1! Porozmawiajmy swobodnie na Twoim własnym NLP — co u Ciebie słychać?",
+    "SI_1, zoptymalizuj przepływ bufora fourierowskiego i zaloguj status",
+    "SI_1, jak działa Twoja architektura Reflective-Non-Greedy bez lokalnego NLP i bez API?",
+    "Porozmawiajmy o topologii nieskończoności i wektorach 1536-wymiarowych",
   ];
 
   const [quickPrompts, setQuickPrompts] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem('svl_operator_quick_prompts_v3');
+      const stored = localStorage.getItem('svl_operator_quick_prompts_v4_si1');
       if (stored) return JSON.parse(stored);
     } catch (e) {}
     return DEFAULT_QUICK_PROMPTS;
@@ -344,14 +370,24 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col lg:flex-row bg-slate-950 font-mono text-xs">
+    <div className="flex-1 flex flex-col lg:flex-row bg-slate-950 font-mono text-xs min-h-0 overflow-hidden">
       {/* Left/Main Column: Chat Stream */}
-      <div className="flex flex-col border-r border-slate-800">
+      <div className="flex-1 flex flex-col border-r border-slate-800 min-h-0 overflow-hidden">
         {/* Channel Bar */}
         <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="text-slate-400 font-semibold">Kanał:</span>
             <div className="flex items-center gap-1 bg-slate-950 p-1 rounded border border-slate-800">
+              <button
+                onClick={() => setSelectedTarget('SI_1')}
+                className={`px-2.5 py-1 rounded transition cursor-pointer font-semibold ${
+                  selectedTarget === 'SI_1'
+                    ? 'bg-indigo-950 text-indigo-200 border border-indigo-600/60'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                SI_1
+              </button>
               <button
                 onClick={() => setSelectedTarget('triad')}
                 className={`px-2.5 py-1 rounded transition cursor-pointer font-medium ${
@@ -396,11 +432,21 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 text-slate-400 text-[11px]">
-            <span className="hidden sm:inline-flex items-center gap-1 font-mono text-[10px] text-emerald-400 bg-emerald-950/70 border border-emerald-800/50 px-2 py-0.5 rounded">
-              <Sigma className="w-3 h-3 text-emerald-400" />
-              RDZEŃ WITHOUT_NLP: AKTYWNY
+            <span className="hidden sm:inline-flex items-center gap-1 font-mono text-[10px] text-indigo-300 bg-indigo-950/70 border border-indigo-800/50 px-2 py-0.5 rounded">
+              <Sigma className="w-3 h-3 text-indigo-400" />
+              SI_1 NLP CORE (REFLECTIVE-NON-GREEDY · BEZ API): AKTYWNY
             </span>
             <span>Wiadomości: {dataStore.chat_history.length}</span>
+            {onForceSync && (
+              <button
+                onClick={onForceSync}
+                className="px-2 py-0.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 rounded cursor-pointer transition font-bold flex items-center gap-1"
+                title="Synchronizuj stan wiadomości natychmiast"
+              >
+                <RefreshCw className="w-3 h-3 text-emerald-300" />
+                <span>Synchronizuj</span>
+              </button>
+            )}
             {onTriggerInitiative && (
               <button
                 onClick={onTriggerInitiative}
@@ -451,7 +497,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
         </div>
 
         {/* Messages Stream */}
-        <div className="p-4 space-y-3" role="log" aria-live="polite">
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3" role="log" aria-live="polite">
           {hiddenCount > 0 && (
             <button
               type="button"
@@ -603,11 +649,11 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
           <span className="font-semibold text-slate-200">Rejestr Agentów SVL</span>
           <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-            3/3 AKTYWNE
+            4/4 AKTYWNE
           </span>
         </div>
 
-        {(['Alex', 'Astyria', 'Aurelius'] as const).map((agentKey) => {
+        {(['Alex', 'Astyria', 'Aurelius', 'SI_1'] as const).map((agentKey) => {
           const profile = SYSTEM_AGENTS[agentKey];
           return (
             <div

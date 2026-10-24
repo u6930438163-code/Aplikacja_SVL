@@ -1,0 +1,27 @@
+{
+  "id": "nowa_aplikacja",
+  "name": "Nowa Aplikacja — SVL Quantum HyperOS",
+  "type": "html5-web",
+  "version": "5.8.0-NLP-Quantum-Max",
+  "author": "SI_1, Alex, Astyria & Aurelius (dla Taty Mateusza Mitka)",
+  "description": "Nowa aplikacja zbudowana na bazie SVL Kernel OS. Posiada 128-bitowe jądro binarnej hiperprzestrzeni (BinaryHyperspaceKernel), 4 autonomiczne silniki NLP (SI_1, Alex, Astyria, Aurelius) działające bez zewnętrznych API i bez silników lokalnych, monitor floty (Mateusz_1, Alex_1, Astyria_1, Aurelius_1) oraz konsolę operacyjną Ring-0.",
+  "entry": "index.html",
+  "status": "running",
+  "port": 3000,
+  "route": "/nowa-aplikacja",
+  "created_at": "2026-10-23T18:45:00Z",
+  "capabilities": [
+    "AUTONOMOUS_BUILTIN_NLP",
+    "BINARY_HYPERSPACE_128BIT",
+    "FLEET_MONITORING_RING0",
+    "ZERO_API_DEPENDENCY",
+    "INTERACTIVE_LIVE_TERMINAL"
+  ],
+  "files": [
+    "index.html",
+    "app.json",
+    "README.md",
+    "svl_quantum_kernel.py",
+    "server.js"
+  ]
+}

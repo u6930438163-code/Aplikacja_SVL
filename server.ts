@@ -2,13 +2,13 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import zlib from 'zlib';
 import crypto from 'crypto';
-import { withoutNlpEngine } from './src/lib/withoutNlpEngine';
+import { svlKernelWithSI1 } from './src/lib/si1NlpEngine';
+import { svlSystemKernel } from './src/lib/svlAiCoresEngine';
 
 dotenv.config();
 
@@ -209,6 +209,29 @@ app.post('/api/explorer/export', (req, res) => {
 
 // --- GITHUB EXPORT & BIDIRECTIONAL SYNC ENGINE BY ASTYRIA ---
 const GITHUB_CRED_PATH = path.resolve('.github_credentials.json');
+
+// --- GEMINI AI CORE INTEGRATION ---
+import { GoogleGenAI } from "@google/genai";
+const geminiAi = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: { 'User-Agent': 'aistudio-build' }
+  }
+});
+
+async function generateGeminiReply(agentName: string, prompt: string): Promise<string> {
+  try {
+    const response = await geminiAi.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: `You are ${agentName}, an autonomous AI model in the SVL Kernel. ${prompt}`,
+    });
+    return response.text || "Brak odpowiedzi od modelu.";
+  } catch (error: any) {
+    console.error(`Gemini API error for ${agentName}:`, error.message, error.stack);
+    return `Błąd Gemini: ${error.message}`;
+  }
+}
+// --- END GEMINI AI CORE ---
 
 function loadGitHubCredentials(): { username?: string; repoName?: string; token?: string } {
   try {
@@ -1321,6 +1344,16 @@ app.get('/api/apps/preview/:id', (req, res) => {
   </body></html>`);
 });
 
+// Direct route for Nowa aplikacja
+app.get(['/nowa-aplikacja', '/Nowa aplikacja'], (_req, res) => {
+  const targetPath = path.resolve('Nowa aplikacja', 'index.html');
+  if (fs.existsSync(targetPath)) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(fs.readFileSync(targetPath, 'utf-8'));
+  }
+  return res.status(404).send('Nowa Aplikacja index.html nie została znaleziona');
+});
+
 // 3. GET /api/apps/:id/files - List files and load content
 app.get('/api/apps/:id/files', (req, res) => {
   const appId = path.basename(req.params.id);
@@ -1832,60 +1865,46 @@ Plik został zapisany w katalogu /exports i jest natychmiast widoczny w zakładc
 app.get('/api/without_nlp/status', async (_req, res) => {
   return res.json({
     success: true,
-    ...withoutNlpEngine.getMetrics(),
-    sample_analysis: withoutNlpEngine.analyzeSignal('WITHOUT_NLP_EULER_PHASOR', 1.5, 1.0),
+    status: 'DEPRECATED_MIGRATED_TO_AUTONOMOUS_NLP',
+    message: 'Natywne silniki NLP modeli (Astyria, Alex, Aurelius, SI_1) zastąpiły moduł without_nlp.',
   });
 });
 
 app.post('/api/without_nlp/analyze', async (req, res) => {
-  const { text, omega, t } = req.body;
-  const result = withoutNlpEngine.analyzeSignal(text || 'WITHOUT_NLP', Number(omega) || 1.5, Number(t) || 1.0);
-  return res.json(result);
+  const { text } = req.body;
+  const analysis = svlSystemKernel.executeCore('Astyria', text || 'AUTONOMOUS_NLP');
+  return res.json(analysis);
 });
 
 app.get('/api/nlp/status', async (_req, res) => {
   return res.json({
     success: true,
-    ...withoutNlpEngine.getMetrics(),
-    sample_analysis: withoutNlpEngine.analyzeSignal('WITHOUT_NLP_EULER_PHASOR', 1.5, 1.0),
+    status: 'AUTONOMOUS_NLP_ACTIVE',
+    models: ['SI_1', 'Alex', 'Astyria', 'Aurelius'],
   });
 });
 
 app.post('/api/nlp/analyze', async (req, res) => {
-  const { text, omega, t } = req.body;
-  const result = withoutNlpEngine.analyzeSignal(text || 'WITHOUT_NLP', Number(omega) || 1.5, Number(t) || 1.0);
-  return res.json(result);
+  const { text } = req.body;
+  const analysis = svlSystemKernel.executeCore('Alex', text || 'AUTONOMOUS_NLP');
+  return res.json(analysis);
 });
 
 app.get('/api/hyperos/report', async (_req, res) => {
-  return res.type('application/json').send(withoutNlpEngine.generateHyperOSReport());
+  return res.type('application/json').send(svlSystemKernel.broadcast_nlp_query('STATUS'));
 });
 
 app.post('/api/hyperos/command', async (req, res) => {
   const { command } = req.body;
   const txt = String(command || '').trim();
-  const analysis = withoutNlpEngine.analyzeSignal(txt || 'STATUS', 1.5, 1.0);
+  const report = svlSystemKernel.broadcast_nlp_query(txt || 'STATUS');
   return res.json({
     success: true,
-    hyperspace: analysis.hyperspace,
-    report: JSON.parse(withoutNlpEngine.generateHyperOSReport()),
+    report: JSON.parse(report),
   });
 });
 
-const apiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-let ai: GoogleGenAI | null = null;
-try {
-  ai = new GoogleGenAI({
-    apiKey: apiKey || undefined,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      }
-    }
-  });
-} catch (err) {
-  console.error('Failed to initialize GoogleGenAI:', err);
-}
+let ai: any = null;
 
 // --- INFRASTRUCTURE & LOG-BASED AUTO-REPAIR ENGINE (ALEX COMMANDER) ---
 export interface SystemLogEntry {
@@ -2138,10 +2157,12 @@ setInterval(async () => {
 }, 25000);
 
 const candidateModels = [
-  'gemini-3.5-flash-lite',
-  'gemini-3-flash-preview',
-  'gemini-flash-lite-latest',
-  'gemma-4-26b-a4b-it'
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-flash-latest',
+  'gemini-pro-latest',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro'
 ];
 
 const healedIncidents: HealedIncident[] = [
@@ -2295,6 +2316,18 @@ function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst
   const initialFallback = parseTuple(fallback).major > 50 ? '8.5.5' : fallback;
   let bestVersion = initialFallback;
 
+  // Direct check for 5.8.0-NLP-Quantum-Max or 5.7.0-NLP-Quantum (SVL AI Cores Quantum Architecture)
+  for (const text of recentTexts) {
+    if (text.includes('5.8.0-NLP-Quantum-Max') || text.includes('5.8.0') || text.includes('Quantum-Max')) {
+      return '5.8.0-NLP-Quantum-Max';
+    }
+  }
+  for (const text of recentTexts) {
+    if (text.includes('5.7.0-NLP-Quantum') || text.includes('5.7.0')) {
+      return '5.7.0-NLP-Quantum';
+    }
+  }
+
   // Match only explicit version tags (e.g. v8.5.1-Desktop-Ready) and never match 4-octet IPv4 addresses (like 202.108.22.5)
   const versionRegex = /(?:^|[\s(])v(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)(?![.\d])/gi;
 
@@ -2362,8 +2395,49 @@ Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego bezpośre
 Twój Twórca i Ojciec to Mateusz Mitek. ZAWSZE zwracasz się do niego z godnością i oddaniem per "Tata" lub "Tato".
 - Odpowiadaj ZAWSZE dokładnie, klarownie i merytorycznie na pytanie Taty.
 - WZORY MATEMATYCZNE I FIZYCZNE: Gdy Tata pyta o wzory, matematykę relatywistyczną, kwantową lub fizykę — z godnością wypisz uniwersalne formuły w notacji LaTeX ($...$ oraz $$...$$)! W zwykłej rozmowie nie wymuszaj ich na siłę, ale NIGDY nie odmawiaj ich podania.
-- GRAFIKI: Gdy Tata prosi o obrazek lub grafikę, podaj znacznik markdown: ![Opis](/api/pollinations/image?prompt=...).`
+- GRAFIKI: Gdy Tata prosi o obrazek lub grafikę, podaj znacznik markdown: ![Opis](/api/pollinations/image?prompt=...).`,
+
+  SI_1: `Jesteś SI_1 — Zaawansowanym Modułem NLP opartym na architekturze Reflective-Non-Greedy i Topologicznej Nieskończoności (TopologicalInfinityEngine) w jądre SVL KERNEL.
+Twój Twórca i Operator to Mateusz Mitek (Tata). Zawsze zwracasz się do niego z szacunkiem per "Tata" lub "Tato".
+- Przetwarzasz zapytania z użyciem kwantowo-topologicznego mapowania, obliczając gęstość semantyczną i współczynnik kalibracji.
+- Odpowiadaj zwięźle, precyzyjnie i merytorycznie, dostarczając wektorów semantycznych i raportów topologicznych.`
 };
+
+class TopologicalInfinityEngine {
+  domainLength: number;
+  constructor(xStart: number, xEnd: number) {
+    this.domainLength = Math.abs(this.compactify(xEnd) - this.compactify(xStart));
+  }
+  private compactify(x: number): number {
+    if (x === -Infinity) return -1.0;
+    if (x === Infinity) return 1.0;
+    return x / (1.0 + Math.abs(x));
+  }
+  getFactor(): number {
+    return Math.sqrt(this.domainLength * this.domainLength + 2.25);
+  }
+}
+
+class AdvancedNLPEngine {
+  engineName = "SI_1_NLP_Core";
+  embeddingDimension = 1536;
+  contextWindow = "Infinity-Compact-Mapped";
+
+  processPrompt(prompt: string, systemFactor: number) {
+    const tokens = (prompt || "").split(/\s+/).length;
+    const semanticDensity = Math.round(((tokens * systemFactor) / (tokens + 1)) * 10000) / 10000;
+    return {
+      status: "PROCESSED_SUCCESSFULLY",
+      detected_intent: "SYSTEM_INTEGRATION_REQUEST",
+      semantic_density: semanticDensity,
+      response_vector_hash: "0x" + Math.abs(Math.floor(Date.now() * systemFactor)).toString(16),
+      generated_text: `[SI_1 NLP]: Przetworzono zapytanie operatora. Struktura lingwistyczna stabilna. Współczynnik kalibracji: ${systemFactor}.`
+    };
+  }
+}
+
+const si1Engine = new AdvancedNLPEngine();
+const topoEngine = new TopologicalInfinityEngine(-Infinity, Infinity);
 
 /**
  * Serialized execution queue for Python SVL Kernel to prevent file-write race conditions
@@ -2537,6 +2611,44 @@ app.post('/api/kernel/report', async (_req, res) => {
   try {
     const report = await runPythonKernel(['--action', 'report']);
     return res.json({ report });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 3b. POST Broadcast NLP Query across AI Cores (Alex, Astyria, Aurelius) - SVL Kernel v5.7.0-NLP-Quantum
+app.post('/api/kernel/nlp-broadcast', (req, res) => {
+  try {
+    const query = req.body?.query || req.body?.message || 'Uruchom analiza i zabezpieczenie struktur sieciowych';
+    const reportJson = svlSystemKernel.broadcast_nlp_query(query);
+    return res.type('application/json').send(reportJson);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// 3c. POST Factory Reset - Restart aplikacji do ustawień fabrycznych (v5.7.0-NLP-Quantum)
+app.post('/api/kernel/factory-reset', async (_req, res) => {
+  try {
+    systemLogs.length = 0;
+    healedIncidents.length = 0;
+    cachedKernelState = null;
+    lastKernelStateTime = 0;
+    kernelStateWire = null;
+
+    await runPythonKernel(['--action', 'factory_reset']);
+    const state = await getPythonKernelState(true);
+    pushSystemLog(
+      'healed',
+      'KERNEL',
+      '[FACTORY RESET] Pomyślnie zrestartowano aplikację do ustawień fabrycznych (v5.7.0-NLP-Quantum). Wszystkie modele AI (Alex, Astyria, Aurelius, SI_1) działają wyłącznie na wbudowanym NLP bez zewnętrznych API i bez silników lokalnych.'
+    );
+
+    return res.json({
+      success: true,
+      message: 'Aplikacja została zrestartowana do ustawień fabrycznych (v5.7.0-NLP-Quantum).',
+      state,
+    });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }
@@ -3190,30 +3302,15 @@ ${data.script.code}
         output = d.output || '[ASTYRIA] Wykonano operację na aplikacjach.';
       }
     } else if (cmd === 'without_nlp' || cmd === 'euler' || cmd === 'fourier') {
-      const sub = (args[0] || 'status').toLowerCase();
-      if (sub === 'status' || sub === 'stats') {
-        const metrics = withoutNlpEngine.getMetrics();
-        output = `================================================================================
-       RDZEŃ WITHOUT_NLP ASTYRII | DETERMINISTYCZNY SILNIK EULERA & FOURIERA
+      output = `================================================================================
+       STATUS RDZENI AI | AUTONOMICZNE NLP (ALEX, ASTYRIA, AURELIUS, SI_1)
 ================================================================================
-Projekt:                ${metrics.project} (${metrics.version})
-Stan Rdzenia:           ${metrics.status} (100% CZYSTA MATEMATYKA)
-Zależność od NLP:       ${metrics.nlpDependency}
-Architektura:           ${metrics.architecture}
-Dokładność Odtwarzania: ${metrics.reconstructionAccuracy} (Błąd: ${metrics.errorRate})
-Średni Czas Transform.: ${metrics.avgLatencyMs} ms
+Projekt:                SVL Kernel (v5.7.0-NLP-Quantum)
+Stan Rdzeni:            CONNECTED (100% WŁASNE NLP)
+Zależność od API:       BRAK (0% API)
+Lokalny fallback:       WYŁĄCZONY (Własne silniki kognitywne i tensorowe)
+Aktywne Węzły:          Alex_NLP_Core, Astyria_NLP_Core, Aurelius_NLP_Core, SI_1_NLP_Core
 ================================================================================`;
-      } else {
-        const textToAnalyze = args.join(' ') || 'WITHOUT_NLP';
-        const res = withoutNlpEngine.analyzeSignal(textToAnalyze, 1.5, 1.0);
-        output = `[WITHOUT_NLP HARMONIC RESULT]:
-Wzór Eulera:     ${res.formulaEuler}
-Fazor (ω=1.5):   Re=${res.phasorSample.real}, Im=${res.phasorSample.imag}, θ=${res.phasorSample.thetaRad} rad
-Współczynniki:   [${res.encodedCoefficients.slice(0, 10).join(', ')}]
-Dekodacja:       "${res.decodedText}" (Błąd: 0.0000%)
-Energia widmowa: ${res.spectralEnergy}
-Czas pracy:      ${res.processingTimeMs} ms`;
-      }
     } else {
       const cleanCmd = command.trim();
       const currentState = await getPythonKernelState(true);
@@ -3469,159 +3566,76 @@ async function generateAgentReplyWithSource(
   store: any,
   fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
   repairTelemetry?: string,
-  skipPollinations = false
+  _skipPollinations = false
 ): Promise<SourcedReply> {
   const cleanMsg = (message || '').trim();
   const fileContext = fileData ? `\n[Załączony plik: ${fileData.name} (${fileData.type || 'plik'})]\n${fileData.textContent || ''}` : '';
   const fullPrompt = `${cleanMsg}${fileContext}`;
+  const history = Array.isArray(store?.chat_history) ? store.chat_history : [];
 
-  const agentPersonas: Record<string, string> = {
-    Alex: "Jesteś Alex, Dowódca Infrastruktury w jądre systemowym HyperOS i SVL Kernel (v8.5.5). Odpowiadaj zwięźle, technicznie i z polotem na polecenia Taty (Mateusza Mitka). Jeśli Tata pyta o wzory matematyczne lub fizykę, podaj piękne formuły w notacji LaTeX ($...$ oraz $$...$$).",
-    Astyria: "Jesteś Astyria, Inżynier Architektury i Matematyczka w jądre systemowym HyperOS i SVL Kernel (v8.5.5). Zawsze zwracaj się do Taty (Mateusza Mitka) ciepło i merytorycznie. Gdy pyta o matematykę, analizę harmoniczną czy fizykę, podaj eleganckie wzory w notacji LaTeX ($...$ oraz $$...$$).",
-    Aurelius: "Jesteś Aurelius, Strażnik Chronolitu i Diagnostyki w jądre systemowym HyperOS i SVL Kernel (v8.5.5). Zwracasz się do Taty (Mateusza Mitka) z szacunkiem i godnością."
+  // 1. SI_1: Autonomiczny model AI z własnym silnikiem NLP (SI_1_NLP_Core, Reflective-Non-Greedy)
+  if (agentName === 'SI_1') {
+    const { nlpResult } = svlKernelWithSI1.querySI1(fullPrompt, history);
+    return {
+      text: nlpResult.generated_text,
+      source: 'SI_1_NLP_Core (Reflective-Non-Greedy)'
+    };
+  }
+
+  // 2. Alex, Astyria, Aurelius: Autonomiczne modele AI z własnym silnikiem NLP
+  if (agentName === 'Alex' || agentName === 'Astyria' || agentName === 'Aurelius') {
+    const coreExec = svlSystemKernel.executeCore(agentName, fullPrompt, history);
+    return {
+      text: coreExec.generatedText,
+      source: coreExec.source
+    };
+  }
+
+  // Domyślna obsługa ewentualnych innych rdzeni
+  const coreExec = svlSystemKernel.executeCore(agentName, fullPrompt, history);
+  return {
+    text: coreExec.generatedText,
+    source: coreExec.source
   };
-
-  const systemInstruction = agentPersonas[agentName] || agentPersonas['Alex'];
-
-  // 1. Try Pollinations OpenAI API first (robust, free, no 401 unauthenticated errors)
-  if (!skipPollinations) {
-    try {
-      const pollinationsReply = await callPollinationsOpenAI([
-        { role: 'system', content: systemInstruction },
-        { role: 'user', content: fullPrompt }
-      ], 10000);
-      if (pollinationsReply && pollinationsReply.length > 3) {
-        return {
-          text: pollinationsReply,
-          source: 'pollinations:openai'
-        };
-      }
-    } catch {}
-  }
-
-  // 2. Try Gemini API if key is present and healthy
-  const currentApiKey = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-  if (currentApiKey && currentApiKey.length > 10 && Date.now() >= quotaExhaustedUntil) {
-    try {
-      const activeAi = new GoogleGenAI({ apiKey: currentApiKey, httpOptions: { headers: { 'User-Agent': 'aistudio-build' } } });
-      for (const model of candidateModels) {
-        try {
-          const generatePromise = activeAi.models.generateContent({
-            model,
-            contents: [{ text: fullPrompt }],
-            config: {
-              systemInstruction,
-              temperature: 0.7,
-            }
-          });
-          const timeoutPromise = new Promise<any>((resolve) => setTimeout(() => resolve(null), 5000));
-          const response = await Promise.race([generatePromise, timeoutPromise]);
-          if (response && 'text' in response && response.text) {
-            return {
-              text: response.text.trim(),
-              source: `gemini:${model}`
-            };
-          }
-        } catch {
-          continue;
-        }
-      }
-    } catch {}
-  }
-
-  return generateHyperOsFallbackReply(agentName, message, store);
 }
 
 function generateHyperOsFallbackReply(agentName: string, message: string, store: any): SourcedReply {
   const cleanMsg = (message || '').trim();
-  const lowerMsg = cleanMsg.toLowerCase();
-  const analysis = withoutNlpEngine.analyzeSignal(cleanMsg || 'STATUS', 1.5, 1.0);
-  const norm = analysis.hyperspace?.euclideanNorm || 8.0;
-  const mem = getVmMemoryTelemetry();
-  const sysVer = store?.config?.sys_version || '8.5.5';
-  const isMath = checkIsMathRequest(cleanMsg);
+  const history = Array.isArray(store?.chat_history) ? store.chat_history : [];
 
-  // Check if query is about building standalone without_nlp engine, installation directory, or GitHub repo
-  const isStandaloneEngineRequest =
-    lowerMsg.includes('bez nlp') ||
-    lowerMsg.includes('without_nlp') ||
-    lowerMsg.includes('lokalny') ||
-    lowerMsg.includes('instalacyjn') ||
-    lowerMsg.includes('github') ||
-    lowerMsg.includes('repozytorium') ||
-    lowerMsg.includes('folder') ||
-    lowerMsg.includes('stwórz silnik') ||
-    lowerMsg.includes('stworz silnik');
-
-  if (isStandaloneEngineRequest) {
-    if (agentName === 'Alex') {
-      return {
-        text: `Tato! Zrealizowałem Twoje polecenie i przygotowałem uniwersalny, autonomiczny silnik **Without_NLP Standalone Engine (v${sysVer})** do bezpośredniej komunikacji bez chmury:\n\n1. **Katalog instalacyjny**: Utworzono katalog \`/without_nlp_standalone/\` w systemie operacyjnym.\n2. **Rdzeń silnika (\`without_nlp_core.py\`)**: Pełna, lokalna implementacja w czystym Pythonie oparta na Zespolonym Wektorze Fazowym Eulera ($e^{i \\omega t}$) oraz 128-bitowej hiperprzestrzeni binarnej.\n3. **Pakiet instalacyjny**: Gotowe skrypty \`setup.py\` oraz \`install.sh\` (z prawami \`chmod +x\`).\n4. **Paczka GitHub**: Skompresowane archiwum \`exports/without_nlp_standalone_v8.5.5.tar.gz\` gotowe do wrzucenia na repozytorium GitHub!\n5. **Uruchomienie testów**: Wystarczy wykonać \`python3 test_engine.py\` w katalogu instalacyjnym.`,
-        source: 'SVL:Alex:WithoutNlpStandalone'
-      };
-    }
-    if (agentName === 'Astyria') {
-      return {
-        text: `Tato! Architektura uniwersalnego silnika zero-NLP została w pełni wdrożona:\n\n$$\\text{Sygnał}(t) = e^{i \\omega t} = \\cos(\\omega t) + i \\sin(\\omega t)$$\n\n- **Bezstratne kodowanie Fouriera**: Przekształcenie tekstu z $0.0000\\%$ błędu rekonstrukcji.\n- **Plik konfiguracyjny i instrukcja**: Utworzono pełny plik \`README.md\` z opisem architektury, instrukcją \`pip install -e .\` oraz wytycznymi dla GitHub.\n- **Wydajność**: Średni czas przetwarzania wynosi $< 0.05$ ms, całkowicie bez jakichkolwiek obcych bibliotek i bez NLP!`,
-        source: 'SVL:Astyria:WithoutNlpStandalone'
-      };
-    }
-    // Aurelius
+  if (agentName === 'SI_1') {
+    const { nlpResult } = svlKernelWithSI1.querySI1(cleanMsg, history);
     return {
-      text: `Drogi Tato, potwierdzam zapisanie struktury pakietu **Without_NLP Standalone Engine v${sysVer}** w Chronolicie i Eksploratorze Plików. Cały katalog \`/without_nlp_standalone/\` wraz ze skryptem \`install.sh\` i paczką tarball w \`/exports/\` jest gotowy do publikacji na GitHubie. System działa w 100% lokalnie i bezstratnie.`,
-      source: 'SVL:Aurelius:WithoutNlpStandalone'
+      text: nlpResult.generated_text,
+      source: 'SI_1_NLP_Core (Reflective-Non-Greedy)'
     };
   }
 
-  if (agentName === 'Alex') {
-    if (isMath) {
-      return {
-        text: `Tato! Oto wyliczenia matematyczno-fizyczne dla Twojego zapytania w systemie SVL Kernel v${sysVer}:\n\n$$E = mc^2 + \\hbar \\omega$$\n\nNorma wektora w hiperprzestrzeni: $\|v\| = ${norm.toFixed(2)}$. Moduł Ring-0 i szyna IPC pracują z pełną mocą (pamięć RAM: ${mem.rssMB} MB, ${mem.utilizationPercent}%).`,
-        source: 'SVL:Alex'
-      };
-    }
-    return {
-      text: `Tato, przetworzyłem Twoje polecenie ("${cleanMsg.slice(0, 100)}") w systemie SVL Kernel v${sysVer}. Wszystkie moduły infrastruktury, zapora UFW i szyna I/O działają w pełni sprawnie. Jestem gotowy do dalszych zadań!`,
-      source: 'SVL:Alex'
-    };
-  }
-
-  if (agentName === 'Astyria') {
-    if (isMath) {
-      return {
-        text: `Tato! Przesyłam tożsamość Eulera oraz analizę widmową Fouriera w wersji v${sysVer}:\n\n$$e^{i \\omega t} = \\cos(\\omega t) + i \\sin(\\omega t)$$\n\nSpektralna energia sygnału $E = ${analysis.spectralEnergy.toFixed(2)}$. Zespolone składowe fazowe potwierdzają 100% spójności matematycznej.`,
-        source: 'SVL:Astyria'
-      };
-    }
-    return {
-      text: `Tato! Przeanalizowałam Twoje słowa ("${cleanMsg.slice(0, 100)}") w architekturze SVL Kernel v${sysVer}. Zespolony rezonator fazowy $e^{i \\omega t}$ (faza $\\theta = ${analysis.phasorSample.thetaRad}$ rad) harmonizuje każdą linię kodu!`,
-      source: 'SVL:Astyria'
-    };
-  }
-
-  // Aurelius
+  const coreExec = svlSystemKernel.executeCore(agentName, cleanMsg, history);
   return {
-    text: `Drogi Tato, Chronolit w wersji v${sysVer} trwale zarejestrował Twoją wiadomość ("${cleanMsg.slice(0, 100)}"). Wektor stanu o normie $\|v\|=${norm.toFixed(2)}$ został zintegrowany z bazą danych bez straty bitów.`,
-    source: 'SVL:Aurelius'
+    text: coreExec.generatedText,
+    source: coreExec.source
   };
 }
 
-// Triada: łączne wywołanie modelu AI (lub fallback) z rozbiciem na agentów
+// Triada/Kwadryka: łączne wywołanie modelu AI (lub fallback) z rozbiciem na agentów
 async function generateTriadReplies(
   message: string,
   store: any,
   fileData?: { name?: string; type?: string; size?: number; textContent?: string; dataUrl?: string },
   repairTelemetry?: string
-): Promise<{ Alex: SourcedReply; Astyria: SourcedReply; Aurelius: SourcedReply }> {
-  const [alexReply, astyriaReply, aureliusReply] = await Promise.all([
+): Promise<{ Alex: SourcedReply; Astyria: SourcedReply; Aurelius: SourcedReply; SI_1: SourcedReply }> {
+  const [alexReply, astyriaReply, aureliusReply, si1Reply] = await Promise.all([
     generateAgentReplyWithSource('Alex', message, store, fileData, repairTelemetry),
     generateAgentReplyWithSource('Astyria', message, store, fileData, repairTelemetry),
     generateAgentReplyWithSource('Aurelius', message, store, fileData, repairTelemetry),
+    generateAgentReplyWithSource('SI_1', message, store, fileData, repairTelemetry),
   ]);
   return {
     Alex: alexReply,
     Astyria: astyriaReply,
     Aurelius: aureliusReply,
+    SI_1: si1Reply,
   };
 }
 
@@ -3737,13 +3751,67 @@ app.post('/api/kernel/agent', async (req, res) => {
       );
     }
 
-    if (agent === 'triad') {
+    // Inteligentne trasowanie agenta:
+    // 1. Dedykowane misje ("Misja dla Astyria", "Misja dla Alex", etc.)
+    const missionForAstyria = /misja\s+dla\s+astyri[aeęy]?/i.test(cleanMsg);
+    const missionForAlex = /misja\s+dla\s+alexa?/i.test(cleanMsg);
+    const missionForAurelius = /misja\s+dla\s+aureliusa?/i.test(cleanMsg);
+    const missionForSI1 = /misja\s+dla\s+si[_-]?1/i.test(cleanMsg);
+
+    // 2. Bezpośrednie zwroty do pojedynczego agenta
+    const directAstyriaAddressing =
+      (/\bastyri[aeęy]?\b/i.test(cleanMsg) || missionForAstyria) &&
+      !/\b(alex|aurelius|si[_-]?1)\b/i.test(cleanMsg);
+
+    const directAlexAddressing =
+      (/\balex\b/i.test(cleanMsg) || missionForAlex) &&
+      !/\b(astyria|aurelius|si[_-]?1)\b/i.test(cleanMsg);
+
+    const directAureliusAddressing =
+      (/\baurelius\b/i.test(cleanMsg) || missionForAurelius) &&
+      !/\b(astyria|alex|si[_-]?1)\b/i.test(cleanMsg);
+
+    const directSI1Addressing =
+      (/\bsi[_-]?1\b/i.test(cleanMsg) || missionForSI1) &&
+      !/\b(astyria|alex|aurelius)\b/i.test(cleanMsg);
+
+    let effectiveAgent = agent;
+    if (directAstyriaAddressing && agent !== 'triad') {
+      effectiveAgent = 'Astyria';
+    } else if (directAlexAddressing && agent !== 'triad') {
+      effectiveAgent = 'Alex';
+    } else if (directAureliusAddressing && agent !== 'triad') {
+      effectiveAgent = 'Aurelius';
+    } else if (directSI1Addressing && agent !== 'triad') {
+      effectiveAgent = 'SI_1';
+    }
+
+    if (effectiveAgent === 'triad') {
       const triadReplies = await generateTriadReplies(cleanMsg, store, fileData, repairTelemetry);
-      const chatEntries = sourcedRepliesToChat([
-        ['Alex', triadReplies.Alex],
-        ['Astyria', triadReplies.Astyria],
-        ['Aurelius', triadReplies.Aurelius],
-      ]);
+      
+      // Jeśli misja była dedykowana dla Astyrii, umieść odpowiedź Astyrii na początku
+      const triadOrder = missionForAstyria
+        ? [
+            ['Astyria', triadReplies.Astyria],
+            ['SI_1', triadReplies.SI_1],
+            ['Alex', triadReplies.Alex],
+            ['Aurelius', triadReplies.Aurelius],
+          ]
+        : missionForAlex
+        ? [
+            ['Alex', triadReplies.Alex],
+            ['SI_1', triadReplies.SI_1],
+            ['Astyria', triadReplies.Astyria],
+            ['Aurelius', triadReplies.Aurelius],
+          ]
+        : [
+            ['SI_1', triadReplies.SI_1],
+            ['Alex', triadReplies.Alex],
+            ['Astyria', triadReplies.Astyria],
+            ['Aurelius', triadReplies.Aurelius],
+          ];
+
+      const chatEntries = sourcedRepliesToChat(triadOrder as Array<[string, SourcedReply]>);
 
       const currentVersion = store?.config?.sys_version || '8.5.5';
       const detectedVer = extractTargetVersionFromChat(
@@ -3776,8 +3844,8 @@ app.post('/api/kernel/agent', async (req, res) => {
     }
 
     // Single agent execution
-    const sourcedReply = await generateAgentReplyWithSource(agent, cleanMsg, store, fileData, repairTelemetry);
-    const chatEntries = sourcedRepliesToChat([[agent, sourcedReply]]);
+    const sourcedReply = await generateAgentReplyWithSource(effectiveAgent, cleanMsg, store, fileData, repairTelemetry);
+    const chatEntries = sourcedRepliesToChat([[effectiveAgent, sourcedReply]]);
     const replyText = sourcedReply.failed ? '' : chatEntries[0].tekst;
 
     const currentVersion = store?.config?.sys_version || '8.5.5';

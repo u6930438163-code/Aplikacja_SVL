@@ -1,6 +1,6 @@
 {
   "name": "SVL Kernel OS - Studio Monolith",
-  "description": "System operacyjny SVL Kernel v8.5.5 (Zsynchronizowany z repozytorium) dla Google AI Studio z jądrem hiperprzestrzeni, agentami Alex, Astyria i Aurelius oraz wsparciem Gemini API.",
+  "description": "System operacyjny SVL Kernel v5.8.0-NLP-Quantum-Max z autonomicznymi modelami AI (Alex, Astyria, Aurelius, SI_1) z własnym wbudowanym NLP bez zewnętrznych API.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

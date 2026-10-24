@@ -2,6 +2,7 @@ import React from 'react';
 import { Terminal, MessagesSquare, FileCode2, Database, History, Activity, Cpu, GitBranch, Clock, Sigma, FolderOpen, HardDrive, LayoutGrid, Brain, Github } from 'lucide-react';
 
 export type TabId =
+  | 'nowa_aplikacja'
   | 'comms'
   | 'process_matrix'
   | 'astyria_mission'
@@ -34,6 +35,12 @@ export const Navigation: React.FC<NavigationProps> = ({
   versionCount,
 }) => {
   const tabs = [
+    {
+      id: 'nowa_aplikacja' as TabId,
+      label: '✨ Nowa Aplikacja (Quantum HyperOS)',
+      icon: MessagesSquare,
+      badge: 'APP'
+    },
     {
       id: 'comms' as TabId,
       label: 'Komora Triady & Dialog',

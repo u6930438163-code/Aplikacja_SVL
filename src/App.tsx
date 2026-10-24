@@ -13,7 +13,7 @@ import { SystemHealthDock } from './components/SystemHealthDock';
 import { usePolling } from './hooks/usePolling';
 import { fetchJsonIfChanged, invalidateEtag } from './utils/fetchJson';
 
-const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_5_5_pure_hyperos';
+const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_6_3_si1_nlp_conversational';
 const STATE_URL = '/api/kernel/state';
 
 // ---------------------------------------------------------------------------
@@ -34,9 +34,11 @@ const FileExplorer = lazy(() => import('./components/FileExplorer').then((m) => 
 const AppsStudioView = lazy(() => import('./components/AppsStudioView').then((m) => ({ default: m.AppsStudioView })));
 const WithoutNlpView = lazy(() => import('./components/WithoutNlpView').then((m) => ({ default: m.WithoutNlpView })));
 const GitHubExportView = lazy(() => import('./components/GitHubExportView').then((m) => ({ default: m.GitHubExportView })));
+const NowaAplikacjaView = lazy(() => import('./components/NowaAplikacjaView').then((m) => ({ default: m.NowaAplikacjaView })));
 const ReportModal = lazy(() => import('./components/ReportModal').then((m) => ({ default: m.ReportModal })));
 
 const viewLoaders: Record<TabId, () => Promise<unknown>> = {
+  nowa_aplikacja: () => import('./components/NowaAplikacjaView'),
   comms: () => import('./components/AgentCommsView'),
   process_matrix: () => import('./components/TaskProcessMatrix'),
   astyria_mission: () => import('./components/AstyriaMissionView'),
@@ -85,6 +87,8 @@ const loadInitialStore = (): DataStore => {
     localStorage.removeItem('svl_kernel_datastore_v8_5_1_desktop_ready');
     localStorage.removeItem('svl_kernel_datastore_v8_6_0_without_nlp');
     localStorage.removeItem('svl_kernel_datastore_v8_6_5_without_nlp_hyperos');
+    localStorage.removeItem('svl_kernel_datastore_v8_5_5_pure_hyperos');
+    localStorage.removeItem('svl_kernel_datastore_v8_6_2_si1_autonomous_nlp');
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (stored) return normalizeDataStore(JSON.parse(stored));
   } catch (e) {
@@ -127,7 +131,7 @@ export default function App() {
     });
   }, []);
 
-  const [activeTab, setActiveTab] = useState<TabId>('comms');
+  const [activeTab, setActiveTab] = useState<TabId>('nowa_aplikacja');
   const [isAgentLoading, setIsAgentLoading] = useState(false);
   const isAgentLoadingRef = useRef(false);
   isAgentLoadingRef.current = isAgentLoading;
@@ -352,42 +356,32 @@ export default function App() {
   }, [setDataStore, appendReplies, fetchServerStore]);
 
   const handleClearHistory = useCallback(async () => {
-    const baseline = [
-      {
-        agent: 'Alex',
-        tekst: 'Działamy w czystym trybie produkcyjnym Google AI Studio. Żadnej fikcji, czysta inżynieria.',
-      },
-      {
-        agent: 'Astyria',
-        tekst: 'Architektura monolitu została dostosowana tak, by zachować pełną czytelność.',
-      },
-      {
-        agent: 'Aurelius',
-        tekst: 'Struktura i czas stanowią teraz jedność. Czekamy na Twoje instrukcje, Operatorze.',
-      },
-    ];
-
-    setDataStore((prev) => ({ ...prev, chat_history: baseline }));
-
     try {
-      await fetch('/api/kernel/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'clear_chat' }),
-      });
+      const res = await fetch('/api/kernel/factory-reset', { method: 'POST' });
+      const json = await res.json();
+      if (json?.state?.store) {
+        setDataStore(json.state.store);
+      }
     } catch (e) {
-      console.warn('Backend clear_chat failed:', e);
+      console.warn('Backend factory-reset failed:', e);
     }
   }, [setDataStore]);
 
-  const handleResetToDefault = useCallback(() => {
-    if (confirm(`Czy na pewno chcesz przywrócić stan bazowy jądra SVL v${SYS_VERSION}?`)) {
-      setDataStore(INITIAL_DATA_STORE);
-      pendingPersist.current = null;
+  const handleResetToDefault = useCallback(async () => {
+    if (confirm(`Czy na pewno chcesz przywrócić stan fabryczny jądra SVL v${SYS_VERSION}?`)) {
       try {
         localStorage.removeItem(LOCAL_STORAGE_KEY);
       } catch (e) {
         console.error(e);
+      }
+      try {
+        const res = await fetch('/api/kernel/factory-reset', { method: 'POST' });
+        const json = await res.json();
+        if (json?.state?.store) {
+          setDataStore(json.state.store);
+        }
+      } catch (e) {
+        console.warn('Backend factory-reset failed:', e);
       }
     }
   }, [setDataStore]);
@@ -404,6 +398,8 @@ export default function App() {
 
   const renderView = () => {
     switch (activeTab) {
+      case 'nowa_aplikacja':
+        return <NowaAplikacjaView />;
       case 'comms':
         return (
           <AgentCommsView
@@ -474,7 +470,7 @@ export default function App() {
           versionCount={dataStore?.update_history?.length || 0}
         />
 
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {sendError && (
             <div
               role="alert"
