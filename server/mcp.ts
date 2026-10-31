@@ -16,7 +16,7 @@ export function readMcpConfig(): McpConfig | null {
   if (process.env.MCP_ENABLED !== 'true') return null;
   const resource = process.env.MCP_PUBLIC_URL || '';
   const issuer = process.env.MCP_OAUTH_ISSUER || '';
-  const jwksUrl = process.env.MCP_OAUTH_JWKS_URL || (issuer ? new URL('.well-known/jwks.json', issuer.endsWith('/') ? issuer : issuer + '/').href : '');
+  const jwksUrl = process.env.MCP_OAUTH_JWKS_URL || '';
   for (const value of [resource, issuer, jwksUrl]) {
     const url = new URL(value);
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('MCP wymaga poprawnych adresów HTTPS bez danych logowania i parametrów.');
