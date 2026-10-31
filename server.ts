@@ -1,3 +1,4 @@
+import { mountSvlMcp } from './server/mcp';
 import { mediaStatus, analyzeImage, generateImage } from './server/openai-media';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
@@ -3805,6 +3806,15 @@ app.post('/api/kernel/agent', async (req, res) => {
     pushSystemLog('error', 'AGENT', `Błąd przetwarzania polecenia agenta: ${err.message}`);
     return res.status(500).json({ error: err.message });
   }
+});
+
+mountSvlMcp(app, {
+  getState: () => getPythonKernelState(true),
+  aiStatus: mediaStatus,
+  listExports: async () => {
+    const files = await fs.promises.readdir(EXPORTS_DIR, { withFileTypes: true });
+    return Promise.all(files.filter(f => f.isFile() && !f.isSymbolicLink()).slice(0, 100).map(async f => ({ name: f.name, size: (await fs.promises.stat(path.join(EXPORTS_DIR, f.name))).size })));
+  },
 });
 
 // Setup Vite middleware in dev or static files in prod
