@@ -1,3 +1,4 @@
+import { ollamaConfig, ollamaReply, ollamaHealth } from './server/ollama';
 import { mountSvlMcp } from './server/mcp';
 import { mediaStatus, analyzeImage, generateImage } from './server/openai-media';
 import express from 'express';
@@ -57,6 +58,7 @@ app.use((err: any, _req: express.Request, res: express.Response, next: express.N
 });
 
 
+app.get('/api/ollama/status', async (_req, res) => res.json(await ollamaHealth()));
 app.get('/api/ai/status', (_req, res) => res.json(mediaStatus()));
 app.get('/api/pollinations/image', (_req, res) => res.status(410).json({ error: 'Użyj /obraz opis na czacie. Wymagana konfiguracja API.' }));
 
@@ -3488,6 +3490,10 @@ async function generateAgentReplyWithSource(
     return { text, source: ('OpenAI Vision' as ReplySource) };
   }
   const cleanMsg = (message || '').trim();
+  if (ollamaConfig().enabled) {
+    try { return await ollamaReply(agentName, message, store?.chat_history); }
+    catch (error) { return { text: '', source: 'Ollama', failed: true, reason: error instanceof Error ? error.message : 'Brak połączenia z Ollamą' }; }
+  }
   const fileContext = fileData ? `\n[Załączony plik: ${fileData.name} (${fileData.type || 'plik'})]\n${fileData.textContent || ''}` : '';
   const fullPrompt = `${cleanMsg}${fileContext}`;
   const history = Array.isArray(store?.chat_history) ? store.chat_history : [];
@@ -3713,6 +3719,8 @@ app.post('/api/kernel/agent', async (req, res) => {
     } else if (directSI1Addressing && agent !== 'triad') {
       effectiveAgent = 'SI_1';
     }
+
+    if (effectiveAgent === 'triad' && ollamaConfig().enabled && !fileData?.dataUrl) effectiveAgent = 'SI_1';
 
     if (effectiveAgent === 'triad') {
       const triadReplies = await generateTriadReplies(cleanMsg, store, fileData, repairTelemetry);
