@@ -293,7 +293,7 @@ export default function App() {
 
     const controller = new AbortController();
     // Serwer ma łączny limit 35 s na odpowiedź; 50 s tutaj to zapas na zapis do jądra
-    const timeoutId = setTimeout(() => controller.abort(), 50000);
+    const timeoutId = setTimeout(() => controller.abort(), /^\/obraz(?:\s|$)/i.test(messageText.trim()) ? 135000 : 50000);
 
     try {
       const res = await fetch('/api/kernel/agent', {
@@ -503,3 +503,4 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+

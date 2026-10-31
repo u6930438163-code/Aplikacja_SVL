@@ -13,6 +13,8 @@ export interface ProcessedFile {
  * Text files are read up to 50,000 characters.
  */
 export async function processUploadFile(file: File): Promise<ProcessedFile> {
+  if (file.size > 20 * 1024 * 1024) throw new Error('Plik przekracza limit 20 MB.');
+  if (file.type.startsWith('image/') && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('Wybierz obraz PNG, JPEG lub WebP.');
   if (file.type.startsWith('image/')) {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -117,3 +119,4 @@ export async function processUploadFile(file: File): Promise<ProcessedFile> {
     reader.readAsText(file);
   });
 }
+

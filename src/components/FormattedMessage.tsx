@@ -63,7 +63,7 @@ const ImageWithFallback: React.FC<{ src: string; alt?: string; className?: strin
   }, [normalizedSrc]);
 
   if (error) {
-    return <TechnicalBlueprintSVG style={alt || 'Sovereign Neural Core Matrix'} />;
+    return <div role="alert" className="p-3 text-amber-300">Nie udało się pobrać obrazu. Spróbuj ponownie.</div>;
   }
 
   return (
@@ -1035,3 +1035,4 @@ const FormattedMessageImpl: React.FC<FormattedMessageProps> = ({ content, classN
 
 /** Memoizowany parser — przelicza się tylko, gdy zmieni się treść wiadomości. */
 export const FormattedMessage = React.memo(FormattedMessageImpl);
+

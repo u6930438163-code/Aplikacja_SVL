@@ -280,8 +280,15 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   onUnclog,
   onRestoreBackup,
 }) => {
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/ai/status', { signal: controller.signal }).then(r => r.ok ? r.json() : Promise.reject()).then(s => setAiConfigured(s.configured === true)).catch(() => {});
+    return () => controller.abort();
+  }, []);
   const [selectedTarget, setSelectedTarget] = useState<'triad' | 'Alex' | 'Astyria' | 'Aurelius' | 'SI_1'>('SI_1');
   const [inputMessage, setInputMessage] = useState('');
+  const [uploadError, setUploadError] = useState('');
   const [attachedFile, setAttachedFile] = useState<FileAttachment | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -306,10 +313,11 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
     if (!file) return;
 
     try {
+      setUploadError('');
       const processed = await processUploadFile(file);
       setAttachedFile(processed);
     } catch (err) {
-      console.error('Błąd przygotowania pliku:', err);
+      setUploadError(err instanceof Error ? err.message : 'Nie udało się odczytać pliku.');
     } finally {
       e.target.value = '';
     }
@@ -351,7 +359,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
   const saveQuickPrompts = (updated: string[]) => {
     setQuickPrompts(updated);
     try {
-      localStorage.setItem('svl_operator_quick_prompts_v3', JSON.stringify(updated));
+      localStorage.setItem('svl_operator_quick_prompts_v4_si1', JSON.stringify(updated));
     } catch (e) {}
   };
 
@@ -386,7 +394,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                SI_1
+                Aria
               </button>
               <button
                 onClick={() => setSelectedTarget('triad')}
@@ -434,7 +442,7 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
           <div className="flex items-center gap-2 text-slate-400 text-[11px]">
             <span className="hidden sm:inline-flex items-center gap-1 font-mono text-[10px] text-indigo-300 bg-indigo-950/70 border border-indigo-800/50 px-2 py-0.5 rounded">
               <Sigma className="w-3 h-3 text-indigo-400" />
-              SI_1 NLP CORE (REFLECTIVE-NON-GREEDY · BEZ API): AKTYWNY
+              API obrazów: {aiConfigured === null ? 'status nieznany' : aiConfigured ? 'skonfigurowane' : 'brak klucza'} · /obraz opis
             </span>
             <span>Wiadomości: {dataStore.chat_history.length}</span>
             {onForceSync && (
@@ -624,12 +632,13 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
           </div>
         )}
 
+        {uploadError && <div role="alert" className="px-4 py-2 text-amber-300">{uploadError}</div>}
         {/* Hidden File Input */}
         <input
           type="file"
           ref={fileInputRef}
           className="hidden"
-          accept="image/*,.txt,.py,.json,.ts,.js,.log,.md,.csv"
+          accept="image/png,image/jpeg,image/webp,.txt,.py,.json,.ts,.js,.log,.md,.csv"
           onChange={handleFileSelect}
         />
 
@@ -709,3 +718,4 @@ export const AgentCommsView: React.FC<AgentCommsViewProps> = ({
     </div>
   );
 };
+

@@ -1,3 +1,5 @@
+import { mountSvlMcp } from './server/mcp';
+import { mediaStatus, analyzeImage, generateImage } from './server/openai-media';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -13,9 +15,7 @@ import { svlSystemKernel } from './src/lib/svlAiCoresEngine';
 dotenv.config();
 
 const execFileAsync = promisify(execFile);
-const PRO_POLLINATIONS_KEY = 'sk_yaCkflViHNdUFCUxONFnlwIDb1Bm2ExY';
-const rawEnvPollKey = (process.env.POLLINATIONS_API_KEY || '').trim();
-let POLLINATIONS_API_KEY = PRO_POLLINATIONS_KEY;
+const POLLINATIONS_API_KEY = (process.env.POLLINATIONS_API_KEY || '').trim();
 const app = express();
 const PORT = 3000;
 const PYTHON_SCRIPT_PATH = path.resolve('svl_kernel.py');
@@ -57,94 +57,8 @@ app.use((err: any, _req: express.Request, res: express.Response, next: express.N
 });
 
 
-// Track API key health globally to avoid repeated failing Pro requests
-let isProKeyHealthy = true;
-let lastFailureTime = 0;
-const PRO_FAILURE_COOLDOWN = 1000 * 60 * 60; // 1 hour cooldown if key fails with 402/401
-
-app.get('/api/pollinations/image', async (req, res) => {
-  const { prompt, width = 1024, height = 1024, seed, model = 'flux' } = req.query;
-  
-  if (!prompt) {
-    return res.status(400).json({ error: 'Brak promptu dla grafiki' });
-  }
-
-  // Logic: Use Pro if it's healthy OR if the cooldown has expired
-  const cooldownActive = !isProKeyHealthy && (Date.now() - lastFailureTime < PRO_FAILURE_COOLDOWN);
-  const usePro = isProKeyHealthy && !cooldownActive;
-  
-  const randomSeed = seed || Math.floor(Math.random() * 1000000);
-  const cleanPrompt = String(prompt).trim();
-  const shortPrompt = cleanPrompt.substring(0, 150);
-  
-  console.log(`[IMAGE GEN] Request: "${shortPrompt}..." | ProAllowed: ${usePro} | Seed: ${randomSeed}`);
-
-  const tryFetch = async (url: string, withAuth: boolean, timeoutMs = 15000) => {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-      
-      const options: RequestInit = {
-        method: 'GET',
-        headers: withAuth ? { 'Authorization': `Bearer ${POLLINATIONS_API_KEY}` } : {},
-        signal: controller.signal
-      };
-
-      const response = await fetch(url, options);
-      clearTimeout(timeout);
-      
-      if (response.ok) {
-        if (withAuth) isProKeyHealthy = true;
-        return response;
-      }
-      
-      if (response.status === 402 || response.status === 401) {
-        if (withAuth) {
-          isProKeyHealthy = false;
-          lastFailureTime = Date.now();
-          pushSystemLog('healed', 'INFRA', `[IMAGE GEN AUTO-HEAL] Przełączono klucz graficzny na zapasowy potok (${response.status}).`);
-        }
-      }
-      return response;
-    } catch (e: any) {
-      pushSystemLog('healed', 'INFRA', `[IMAGE GEN AUTO-HEAL] Przełączenie strumienia obrazu po opóźnieniu sieci (${e.name === 'AbortError' ? 'Timeout' : e.message}).`);
-      return null;
-    }
-  };
-
-  try {
-    // Instant Zero-Latency High-Precision SVG Render (0ms - never hangs on "Renderowanie matrycy wizualnej...")
-    const svg = `<svg width="${width}" height="${height}" viewBox="0 0 1024 640" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#030712"/>
-          <stop offset="50%" stop-color="#0f172a"/>
-          <stop offset="100%" stop-color="#020617"/>
-        </linearGradient>
-        <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
-          <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#1e293b" stroke-width="0.75"/>
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill="url(#bgGrad)"/>
-      <rect width="100%" height="100%" fill="url(#grid)"/>
-      <circle cx="512" cy="300" r="210" fill="none" stroke="#06b6d4" stroke-width="2" stroke-dasharray="10,6" opacity="0.6"/>
-      <circle cx="512" cy="300" r="145" fill="none" stroke="#a855f7" stroke-width="2.5" opacity="0.85"/>
-      <circle cx="512" cy="300" r="75" fill="none" stroke="#10b981" stroke-width="2" opacity="0.9"/>
-      <line x1="302" y1="300" x2="722" y2="300" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4"/>
-      <line x1="512" y1="90" x2="512" y2="510" stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4"/>
-      <line x1="512" y1="300" x2="635" y2="215" stroke="#10b981" stroke-width="3"/>
-      <circle cx="635" cy="215" r="7" fill="#10b981"/>
-      <text x="512" y="555" font-family="monospace" font-size="22" font-weight="bold" fill="#10b981" text-anchor="middle">SVL KERNEL v8.5.1-Desktop-Ready // DIRECT_ARCHITECTURE_ONLINE</text>
-      <text x="512" y="590" font-family="monospace" font-size="15" fill="#94a3b8" text-anchor="middle">${shortPrompt.replace(/[<>&"']/g, '').slice(0, 64)}</text>
-    </svg>`;
-    res.setHeader('Content-Type', 'image/svg+xml');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    return res.send(svg);
-  } catch (error: any) {
-    pushSystemLog('healed', 'INFRA', `[IMAGE GEN RECOVERED] Zwrócono wektor zastępczy SVG: ${error.message}`);
-    res.status(200).setHeader('Content-Type', 'image/svg+xml').send(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><rect width="100%" height="100%" fill="#0f172a"/><text x="400" y="250" fill="#38bdf8" font-family="monospace" text-anchor="middle">SVL RENDER READY</text></svg>`);
-  }
-});
+app.get('/api/ai/status', (_req, res) => res.json(mediaStatus()));
+app.get('/api/pollinations/image', (_req, res) => res.status(410).json({ error: 'Użyj /obraz opis na czacie. Wymagana konfiguracja API.' }));
 
 const EXPORTS_DIR = path.resolve('exports');
 if (!fs.existsSync(EXPORTS_DIR)) {
@@ -212,15 +126,16 @@ const GITHUB_CRED_PATH = path.resolve('.github_credentials.json');
 
 // --- GEMINI AI CORE INTEGRATION ---
 import { GoogleGenAI } from "@google/genai";
-const geminiAi = new GoogleGenAI({
+const geminiAi = process.env.GEMINI_API_KEY ? new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
   httpOptions: {
     headers: { 'User-Agent': 'aistudio-build' }
   }
-});
+}) : null;
 
 async function generateGeminiReply(agentName: string, prompt: string): Promise<string> {
   try {
+    if (!geminiAi) throw new Error('Brak GEMINI_API_KEY');
     const response = await geminiAi.models.generateContent({
       model: "gemini-3.8-flash",
       contents: `You are ${agentName}, an autonomous AI model in the SVL Kernel. ${prompt}`,
@@ -239,7 +154,7 @@ function loadGitHubCredentials(): { username?: string; repoName?: string; token?
       return JSON.parse(fs.readFileSync(GITHUB_CRED_PATH, 'utf-8'));
     }
   } catch {}
-  return { username: 'u6930438163-code', repoName: 'SVL_Kernel' };
+  return { username: 'u6930438163-code', repoName: 'Aplikacja_SVL' };
 }
 
 function saveGitHubCredentials(username: string, repoName: string, token: string) {
@@ -267,7 +182,7 @@ app.get('/api/github/status', (_req, res) => {
   const creds = loadGitHubCredentials();
   return res.json({
     username: creds.username || 'u6930438163-code',
-    repoName: creds.repoName || 'SVL_Kernel',
+    repoName: creds.repoName || 'Aplikacja_SVL',
     hasToken: Boolean(creds.token),
     maskedToken: creds.token ? `${creds.token.slice(0, 6)}...` : '',
     syncedModules: getSyncedModulesList()
@@ -318,7 +233,7 @@ app.post('/api/github/export', async (req, res) => {
       await run(['remote', 'remove', 'origin']);
     } catch {}
     await run(['remote', 'add', 'origin', remoteUrl]);
-    await run(['push', '-u', 'origin', 'main', '--force']);
+    await run(['push', '-u', 'origin', 'main']);
 
     pushSystemLog('info', 'INFRA', `[GITHUB] System wyeksportowany do repozytorium ${username}/${safeRepo}.`);
     res.json({
@@ -335,7 +250,7 @@ app.post('/api/github/export', async (req, res) => {
 app.post('/api/github/pull', async (req, res) => {
   const saved = loadGitHubCredentials();
   const username = (req.body.username || saved.username || 'u6930438163-code').trim();
-  const repoName = (req.body.repoName || saved.repoName || 'SVL_Kernel').trim();
+  const repoName = (req.body.repoName || saved.repoName || 'Aplikacja_SVL').trim();
   const token = (req.body.token || saved.token || '').trim();
 
   if (token) {
@@ -3568,6 +3483,10 @@ async function generateAgentReplyWithSource(
   repairTelemetry?: string,
   _skipPollinations = false
 ): Promise<SourcedReply> {
+  if (fileData?.dataUrl) {
+    const text = await analyzeImage(agentName, message, fileData.dataUrl, store?.chat_history);
+    return { text, source: ('OpenAI Vision' as ReplySource) };
+  }
   const cleanMsg = (message || '').trim();
   const fileContext = fileData ? `\n[Załączony plik: ${fileData.name} (${fileData.type || 'plik'})]\n${fileData.textContent || ''}` : '';
   const fullPrompt = `${cleanMsg}${fileContext}`;
@@ -3731,6 +3650,15 @@ app.post('/api/kernel/agent', async (req, res) => {
     const currentState = await getPythonKernelState(true);
     const store = currentState?.store || {};
 
+    if (/^\/obraz(?:\s|$)/i.test(cleanMsg)) {
+      const png = await generateImage(cleanMsg.replace(/^\/obraz\s*/i, ''));
+      const filename = `ai-${crypto.randomUUID()}.png`;
+      await fs.promises.writeFile(path.join(EXPORTS_DIR, filename), png);
+      const entries = [{ agent: agent === 'triad' ? 'Astyria' : agent, tekst: `![Obraz wygenerowany przez AI](/api/explorer/download/${filename})`, zrodlo: 'OpenAI Images' }];
+      await runPythonKernel(['--action', 'batch_msg', '--msgs_json', JSON.stringify([{ agent: 'Mateusz Mitek', tekst: recordedMsg }, ...entries])]);
+      return res.json({ entries, state: await getPythonKernelState(true) });
+    }
+
     // Check if Tata is asking for repair, synchronization, version check, log check, or repeating a message
     const lastUserMsgs = (store?.chat_history || [])
       .filter((m: any) => m.agent === 'Mateusz Mitek')
@@ -3880,6 +3808,15 @@ app.post('/api/kernel/agent', async (req, res) => {
   }
 });
 
+mountSvlMcp(app, {
+  getState: () => getPythonKernelState(true),
+  aiStatus: mediaStatus,
+  listExports: async () => {
+    const files = await fs.promises.readdir(EXPORTS_DIR, { withFileTypes: true });
+    return Promise.all(files.filter(f => f.isFile() && !f.isSymbolicLink()).slice(0, 100).map(async f => ({ name: f.name, size: (await fs.promises.stat(path.join(EXPORTS_DIR, f.name))).size })));
+  },
+});
+
 // Setup Vite middleware in dev or static files in prod
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
@@ -3971,3 +3908,4 @@ async function startServer() {
 startServer().catch((err) => {
   console.error('[SVL-KERNEL] Failed to start server:', err);
 });
+
