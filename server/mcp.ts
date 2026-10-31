@@ -16,7 +16,7 @@ export function readMcpConfig(): McpConfig | null {
   if (process.env.MCP_ENABLED !== 'true') return null;
   const resource = process.env.MCP_PUBLIC_URL || '';
   const issuer = process.env.MCP_OAUTH_ISSUER || '';
-  const jwksUrl = process.env.MCP_OAUTH_JWKS_URL || '';
+  const jwksUrl = process.env.MCP_OAUTH_JWKS_URL || (issuer ? new URL('.well-known/jwks.json', issuer.endsWith('/') ? issuer : issuer + '/').href : '');
   for (const value of [resource, issuer, jwksUrl]) {
     const url = new URL(value);
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('MCP wymaga poprawnych adresów HTTPS bez danych logowania i parametrów.');
@@ -63,6 +63,8 @@ export function mountSvlMcp(app: Express, deps: Dependencies) {
   const metadata = { resource: config.resource, authorization_servers: [config.issuer], scopes_supported: ['svl:read'], bearer_methods_supported: ['header'] };
   app.get(metadataPath, (_req, res) => res.json(metadata));
   app.get('/.well-known/oauth-protected-resource', (_req, res) => res.json(metadata));
+  // Public diagnostic endpoint: no secrets, useful for automated connector checks.
+  app.get('/api/mcp/ready', (_req, res) => res.json({ ready: true, transport: 'streamable-http', endpoint: config.resource, oauthDiscovery: metadataUrl, loginRequired: true }));
   const jwks = createRemoteJWKSet(new URL(config.jwksUrl));
   const auth: RequestHandler = async (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
