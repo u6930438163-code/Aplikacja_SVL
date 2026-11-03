@@ -197,3 +197,130 @@ export const Triad3DOscillatorChart: React.FC = () => {
     </div>
   );
 };
+
+
+// Shared schematic chart renderer used by FormattedMessage and the diagnostics.
+// These animations are illustrations, not live hardware/agent telemetry.
+type SignalKind = 'power' | 'heartbeat' | 'orbits';
+const chartLabels: Record<SignalKind, string> = {
+  power: 'Przebieg mocy (schemat)',
+  heartbeat: 'Puls sygnału (schemat)',
+  orbits: 'Orbity agentów (schemat)',
+};
+const SignalCanvas: React.FC<{ kind: SignalKind }> = ({ kind }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    let frame = 0;
+    let active = true;
+    const startedAt = performance.now();
+    const draw = (now: number) => {
+      if (!active) return;
+      const w = canvas.width;
+      const h = canvas.height;
+      const t = (now - startedAt) / 1000;
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 0.7;
+      for (let x = 0; x < w; x += 26) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+      }
+      for (let y = 0; y < h; y += 26) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      }
+
+      if (kind === 'orbits') {
+        const cx = w / 2, cy = h / 2;
+        const nodes = [
+          { name: 'Aria', color: '#818cf8' },
+          { name: 'Alex', color: '#34d399' },
+          { name: 'Astyria', color: '#22d3ee' },
+          { name: 'Aurelius', color: '#fbbf24' },
+        ];
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill();
+        nodes.forEach((node, i) => {
+          const angle = t * (0.32 + i * 0.06) + i * Math.PI / 2;
+          const nx = cx + 75 * Math.cos(angle), ny = cy + 49 * Math.sin(angle);
+          ctx.strokeStyle = node.color;
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(nx, ny); ctx.stroke();
+          ctx.fillStyle = node.color;
+          ctx.beginPath(); ctx.arc(nx, ny, 4, 0, Math.PI * 2); ctx.fill();
+          ctx.font = '10px sans-serif';
+          ctx.fillText(node.name, Math.min(nx + 7, w - 43), Math.max(12, ny - 6));
+        });
+      } else {
+        const gaussian = (x: number, center: number, width: number) =>
+          Math.exp(-Math.pow((x - center) / width, 2));
+        const trace = (line: number) => {
+          ctx.beginPath();
+          ctx.lineWidth = line === 0 ? 2 : 1.3;
+          ctx.strokeStyle = kind === 'heartbeat' ? '#34d399' : line === 0 ? '#38bdf8' : '#a78bfa';
+          for (let x = 0; x < w; x += 2) {
+            let y: number;
+            if (kind === 'heartbeat') {
+              const phase = (((x / w) * 2.5 - t * 0.55) % 1 + 1) % 1;
+              const pulse = 12 * gaussian(phase, 0.18, 0.045)
+                - 20 * gaussian(phase, 0.35, 0.014)
+                + 63 * gaussian(phase, 0.385, 0.012)
+                - 26 * gaussian(phase, 0.42, 0.016)
+                + 13 * gaussian(phase, 0.65, 0.08);
+              y = h * 0.56 - pulse;
+            } else {
+              y = h * (line === 0 ? 0.42 : 0.62)
+                + (line === 0 ? 26 : 18) * Math.sin(x * 0.037 - t * (line === 0 ? 2 : 1.4))
+                + 6 * Math.sin(x * 0.11 + t * 0.7);
+            }
+            if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        };
+        trace(0);
+        if (kind === 'power') trace(1);
+      }
+      frame = requestAnimationFrame(draw);
+    };
+    frame = requestAnimationFrame(draw);
+    return () => { active = false; cancelAnimationFrame(frame); };
+  }, [kind]);
+
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 flex flex-col items-center">
+      <div className="w-full flex flex-wrap justify-between gap-2 text-[11px] font-semibold text-cyan-300 mb-2">
+        <span>{chartLabels[kind]}</span>
+        <span className="text-slate-500 font-mono">Wizualizacja poglądowa</span>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={300}
+        height={160}
+        aria-label={chartLabels[kind]}
+        role="img"
+        className="rounded border border-slate-900 bg-slate-950 w-full max-w-full"
+      />
+    </div>
+  );
+};
+
+export const LivePowerWaveChart: React.FC = () => <SignalCanvas kind="power" />;
+export const HeartbeatWaveChart: React.FC = () => <SignalCanvas kind="heartbeat" />;
+export const TriadCoreOrbitsChart: React.FC = () => <SignalCanvas kind="orbits" />;
+
+export type InteractiveChartType = 'phase' | 'heatmap' | 'entropy' | '3d' | 'triad' | 'power' | 'heartbeat' | 'orbits';
+export const InteractiveChartRenderer: React.FC<{ type?: InteractiveChartType }> = ({ type = 'phase' }) => {
+  switch (type) {
+    case 'heatmap':
+    case 'entropy': return <EntropyHeatmapChart />;
+    case '3d':
+    case 'triad': return <Triad3DOscillatorChart />;
+    case 'power': return <LivePowerWaveChart />;
+    case 'heartbeat': return <HeartbeatWaveChart />;
+    case 'orbits': return <TriadCoreOrbitsChart />;
+    default: return <PhaseSpaceChart />;
+  }
+};
