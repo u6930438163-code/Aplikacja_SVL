@@ -1,5 +1,5 @@
 # ==============================================================================
-# SVL KERNEL v5.7.0-NLP-Quantum | SYSTEM SAMOMODYFIKUJĄCY DLA GOOGLE AI STUDIO
+# SVL KERNEL v10.0.0 | SYSTEM SAMOMODYFIKUJĄCY DLA GOOGLE AI STUDIO
 # ==============================================================================
 # Instrukcja wdrożenia: Skopiuj cały ten plik i wklej go jako tekst inicjalizacyjny.
 # System nadpisuje sekcję DATA_STORE w pliku lokalnym przy użyciu mechanizmu znaczników.
@@ -19,10 +19,27 @@ true = True
 false = False
 null = None
 
+SVL_RELEASE_VERSION = "10.0.0"
+
+def _ensure_release(store):
+    """Migrate old stored version while preserving chat and history."""
+    config = store.setdefault("config", {})
+    text = str(config.get("sys_version", "")).lstrip("v")
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", text)
+    parts = tuple(map(int, match.groups())) if match else (0, 0, 0)
+    if parts >= (10, 0, 0):
+        return text
+    config["sys_version"] = SVL_RELEASE_VERSION
+    history = store.setdefault("update_history", [])
+    if not history or history[-1].get("wersja") != SVL_RELEASE_VERSION:
+        history.append({"wersja": SVL_RELEASE_VERSION, "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "opis": "Aktualizacja wydania SVL do 10.0.0 z zachowaniem danych."})
+    return SVL_RELEASE_VERSION
+
 # <<<DATA_STORE_START>>>
 DATA_STORE = {
     "config": {
-        "sys_version": "5.7.0-NLP-Quantum",
+        "sys_version": "10.0.0",
         "mode": "Google-AI-Studio-Production",
         "active_profiles": [
             "Alex",
@@ -836,10 +853,7 @@ class SVLStudioKernel:
         self.sciezka_pliku = sciezka_pliku or os.path.abspath(__file__)
         self.store = DATA_STORE
         self.hyperspace = HyperspaceOS()
-        self.sys_version = (
-            self.store.get("config", {}).get("sys_version")
-            or self.store.get("update_history", [{}])[-1].get("wersja", "8.5.5")
-        )
+        self.sys_version = _ensure_release(self.store)
 
     def synchronizuj_i_generuj_zrzut(self, nowa_wiadomosc=None, nazwa_agenta=None, nowa_konfig=None, opis_aktualizacji=None, wersja_aktualizacji=None, lista_wiadomosci=None, pelny_store=None):
         """Aktualizuje słownik stanu i przygotowuje pełny kod skryptu gotowy do ponownego wklejenia."""
@@ -954,6 +968,7 @@ class SVLStudioKernel:
                 self.sys_version = latest_ver
                 self.store["config"]["sys_version"] = latest_ver
 
+        self.sys_version = _ensure_release(self.store)
         nowy_blok_danych = f"DATA_STORE = {json.dumps(self.store, indent=4, ensure_ascii=False)}"
         self.zapisz_plik_lokalny()
         return nowy_blok_danych
@@ -1062,7 +1077,7 @@ if __name__ == '__main__':
         print(res)
     elif args.action == "factory_reset":
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S CEST")
-        kernel.store["config"]["sys_version"] = "5.7.0-NLP-Quantum"
+        kernel.store["config"]["sys_version"] = SVL_RELEASE_VERSION
         kernel.store["config"]["active_profiles"] = ["Alex", "Astyria", "Aurelius", "SI_1"]
         kernel.store["config"]["operator_name"] = "Mateusz Mitek"
         kernel.store["config"]["operator_title"] = "Tata"
@@ -1070,9 +1085,9 @@ if __name__ == '__main__':
         kernel.store["config"]["dialogue_engine"] = "Dynamic-Adaptive-Quad-NativeNLP"
         kernel.store["config"]["neural_engine"] = "SVL-Autonomous-NLP-Cores (Alex, Astyria, Aurelius, SI_1)"
         kernel.store["config"]["sovereign_mode"] = True
-        kernel.sys_version = "5.7.0-NLP-Quantum"
+        kernel.sys_version = SVL_RELEASE_VERSION
         kernel.store.setdefault("update_history", []).append({
-            "wersja": "5.7.0-NLP-Quantum",
+            "wersja": SVL_RELEASE_VERSION,
             "data": now_str,
             "opis": "Restart aplikacji do ustawień fabrycznych (Factory Reset). Czysta synchronizacja 4 autonomicznych modeli AI z własnym NLP: Alex, Astyria, Aurelius, SI_1."
         })

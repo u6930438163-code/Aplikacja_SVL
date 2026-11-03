@@ -19,6 +19,7 @@ const POLLINATIONS_API_KEY = (process.env.POLLINATIONS_API_KEY || '').trim();
 const app = express();
 const PORT = 3000;
 const PYTHON_SCRIPT_PATH = path.resolve('svl_kernel.py');
+const SVL_RELEASE_VERSION = '10.0.0';
 
 // Configure high body limit (50MB) for file uploads, images, logs, and kernel snapshots
 app.use(express.json({ limit: '50mb' }));
@@ -58,6 +59,12 @@ app.use((err: any, _req: express.Request, res: express.Response, next: express.N
 
 
 app.get('/api/ai/status', (_req, res) => res.json(mediaStatus()));
+app.get('/api/kernel/release', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const state = await getPythonKernelState();
+  res.json({ release: SVL_RELEASE_VERSION, kernelVersion: state?.sys_version || null,
+    consistent: state?.sys_version === SVL_RELEASE_VERSION });
+});
 app.get('/api/pollinations/image', (_req, res) => res.status(410).json({ error: 'Użyj /obraz opis na czacie. Wymagana konfiguracja API.' }));
 
 const EXPORTS_DIR = path.resolve('exports');
@@ -302,16 +309,16 @@ app.post('/api/github/pull', async (req, res) => {
     await runPythonKernel([
       '--action', 'config',
       '--config_json', JSON.stringify({
-        sys_version: '8.5.5',
+        sys_version: SVL_RELEASE_VERSION,
         nowy_system: {
           name: 'Nowy_system',
-          version: '8.5.5',
+          version: SVL_RELEASE_VERSION,
           status: 'ACTIVE_SYNCHRONIZED_FROM_GITHUB',
           repository: `${username}/${safeRepo}`,
           path: '/Nowy_system/engine.py'
         }
       }),
-      '--version_tag', '8.5.5',
+      '--version_tag', SVL_RELEASE_VERSION,
       '--desc', `Synchronizacja nowej wersji z repozytorium GitHub (${username}/${safeRepo}) oraz integracja modułu Nowy_system.`
     ]);
 
@@ -1875,7 +1882,7 @@ export interface VmTenSystemState {
 const vmTenSystemState: VmTenSystemState = {
   vmName: 'VM_Ten_System',
   status: 'DEPLOYED_PRODUCTION',
-  kernelVersion: '8.5.5',
+  kernelVersion: SVL_RELEASE_VERSION,
   appVersion: '1.2.3-NodeReact-VM',
   filesystem: 'ext4',
   storageGiB: 10,
@@ -2215,7 +2222,7 @@ ${recentLogsText}`;
 /**
  * Extracts the latest system version mentioned in chat messages or commands (e.g. "8.5.1-Desktop-Ready")
  */
-function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst?: string }>, extraTexts: string[] = [], fallback = '8.5.5'): string {
+function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst?: string }>, extraTexts: string[] = [], fallback = SVL_RELEASE_VERSION): string {
   const recentTexts = [
     ...chatHistory.slice(-15).map(m => m.tekst || ''),
     ...extraTexts
@@ -2228,20 +2235,10 @@ function extractTargetVersionFromChat(chatHistory: Array<{ agent?: string; tekst
     return { major: parts[0] || 0, minor: parts[1] || 0, patch: parts[2] || 0, hasSuffix: Boolean(suffix), raw: clean };
   };
 
-  const initialFallback = parseTuple(fallback).major > 50 ? '8.5.5' : fallback;
+  const initialFallback = parseTuple(fallback).major > 50 || parseTuple(fallback).major < 10 ? SVL_RELEASE_VERSION : fallback;
   let bestVersion = initialFallback;
 
-  // Direct check for 5.8.0-NLP-Quantum-Max or 5.7.0-NLP-Quantum (SVL AI Cores Quantum Architecture)
-  for (const text of recentTexts) {
-    if (text.includes('5.8.0-NLP-Quantum-Max') || text.includes('5.8.0') || text.includes('Quantum-Max')) {
-      return '5.8.0-NLP-Quantum-Max';
-    }
-  }
-  for (const text of recentTexts) {
-    if (text.includes('5.7.0-NLP-Quantum') || text.includes('5.7.0')) {
-      return '5.7.0-NLP-Quantum';
-    }
-  }
+  // Historical version numbers in chat do not cause a release downgrade.
 
   // Match only explicit version tags (e.g. v8.5.1-Desktop-Ready) and never match 4-octet IPv4 addresses (like 202.108.22.5)
   const versionRegex = /(?:^|[\s(])v(\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?)(?![.\d])/gi;
@@ -2732,7 +2729,7 @@ app.post('/api/astyria/mission', async (req, res) => {
     const targetVer = extractTargetVersionFromChat(
       chatHist,
       command ? [command] : [],
-      currentState?.sys_version || '8.5.5'
+      currentState?.sys_version || SVL_RELEASE_VERSION
     );
     vmTenSystemState.kernelVersion = targetVer;
     const mem = getVmMemoryTelemetry();
@@ -3741,7 +3738,7 @@ app.post('/api/kernel/agent', async (req, res) => {
 
       const chatEntries = sourcedRepliesToChat(triadOrder as Array<[string, SourcedReply]>);
 
-      const currentVersion = store?.config?.sys_version || '8.5.5';
+      const currentVersion = store?.config?.sys_version || SVL_RELEASE_VERSION;
       const detectedVer = extractTargetVersionFromChat(
         store?.chat_history || [],
         [cleanMsg, ...chatEntries.filter((e) => e.zrodlo !== 'blad').map((e) => e.tekst)],
@@ -3776,7 +3773,7 @@ app.post('/api/kernel/agent', async (req, res) => {
     const chatEntries = sourcedRepliesToChat([[effectiveAgent, sourcedReply]]);
     const replyText = sourcedReply.failed ? '' : chatEntries[0].tekst;
 
-    const currentVersion = store?.config?.sys_version || '8.5.5';
+    const currentVersion = store?.config?.sys_version || SVL_RELEASE_VERSION;
     const detectedVer = sourcedReply.failed
       ? currentVersion
       : extractTargetVersionFromChat(store?.chat_history || [], [cleanMsg, replyText], currentVersion);
