@@ -2,11 +2,11 @@
   "id": "bastillaos",
   "name": "BastillaOS",
   "type": "html5-web",
-  "version": "1.0.0",
+  "version": "13.0.0-Debian-Trixie-KDE",
   "author": "Astyria, Aurelius, Alex & Operator",
-  "description": "Instalowalna dystrybucja Debian Stable KDE z integracją modułów SVL Kernel.",
+  "description": "Uruchomiona dystrybucja Debian 13 (Trixie) BastillaOS KDE z integracją modułów SVL Kernel, konsoli ROOT, eksportu plików oraz komunikacji z agentami Kwadryki.",
   "entry": "index.html",
-  "status": "ready",
+  "status": "running",
   "created_at": "2026-10-19T19:56:00Z",
   "files": ["README.md", "app.json", "index.html"]
 }

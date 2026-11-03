@@ -1,22 +1,366 @@
-<!doctype html>
-<html lang="pl">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BastillaOS</title>
-    <style>
-      :root { color-scheme: dark; font-family: ui-monospace, monospace; background: #020617; color: #e2e8f0; }
-      body { min-height: 100vh; display: grid; place-items: center; margin: 0; }
-      main { max-width: 32rem; padding: 2rem; border: 1px solid #155e75; border-radius: 1rem; background: #0f172a; }
-      a { color: #67e8f9; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>BastillaOS</h1>
-      <p>Uruchamiam nowy pulpit systemu.</p>
-      <p><a href="/">Otwórz BastillaOS</a></p>
-    </main>
-    <script>window.location.replace('/');</script>
-  </body>
+<!DOCTYPE html>
+<html lang="pl" class="dark h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BastillaOS v1.0 — Debian Stable KDE (SVL Kernel Monolith)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      user-select: none;
+      background: radial-gradient(ellipse at center, #0f172a 0%, #020617 100%);
+      overflow: hidden;
+    }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+    }
+    .window-shadow {
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 1px rgba(56, 189, 248, 0.4);
+    }
+    .window {
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+  </style>
+</head>
+<body class="h-full text-slate-100 flex flex-col relative">
+
+  <!-- Desktop Wallpaper Overlay & Ambient Glow -->
+  <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-cyan-900/20 via-slate-950/80 to-slate-950 pointer-events-none"></div>
+  <div class="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none"></div>
+
+  <!-- KDE Top Panel -->
+  <header class="h-9 bg-slate-950/90 border-b border-cyan-500/30 px-3 flex items-center justify-between z-40 backdrop-blur text-xs">
+    <div class="flex items-center gap-3">
+      <!-- KDE Application Launcher -->
+      <button onclick="toggleStartMenu()" class="px-2.5 py-1 rounded bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-slate-950 font-extrabold flex items-center gap-1.5 shadow-md active:scale-95 transition cursor-pointer">
+        <i class="fa-solid fa-compact-disc text-sm"></i>
+        <span>BastillaOS</span>
+      </button>
+
+      <!-- Active Workspaces -->
+      <div class="hidden sm:flex items-center gap-1 bg-slate-900/80 p-0.5 rounded border border-slate-800">
+        <button class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 font-bold border border-cyan-700/60 text-[10px]">Pulpit 1</button>
+        <button class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-400 text-[10px]">Pulpit 2</button>
+      </div>
+
+      <div class="h-4 w-px bg-slate-800"></div>
+
+      <!-- Quick Taskbar Open Apps -->
+      <div class="flex items-center gap-1">
+        <button onclick="openWindow('terminalWin')" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-emerald-400 font-mono flex items-center gap-1 cursor-pointer">
+          <i class="fa-solid fa-terminal"></i>
+          <span class="hidden md:inline">Konsola ROOT</span>
+        </button>
+        <button onclick="openWindow('agentsWin')" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 font-mono flex items-center gap-1 cursor-pointer">
+          <i class="fa-solid fa-brain"></i>
+          <span class="hidden md:inline">Kwadryka SVL</span>
+        </button>
+        <button onclick="openWindow('filesWin')" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-amber-300 font-mono flex items-center gap-1 cursor-pointer">
+          <i class="fa-solid fa-folder-open"></i>
+          <span class="hidden md:inline">Eksplorator</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- System Tray -->
+    <div class="flex items-center gap-3 text-slate-400 text-[11px] font-mono">
+      <div class="hidden lg:flex items-center gap-2 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800">
+        <span class="text-emerald-400 flex items-center gap-1"><i class="fa-solid fa-microchip"></i> CPU: <b id="cpuUsage">4.2%</b></span>
+        <span class="text-cyan-400 flex items-center gap-1"><i class="fa-solid fa-memory"></i> RAM: <b id="ramUsage">1.8/16 GB</b></span>
+      </div>
+
+      <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-bold text-[10px]">
+        DEBIAN 13 TRIXIE (RING-0)
+      </span>
+
+      <div id="clockDisplay" class="font-bold text-slate-200"></div>
+    </div>
+  </header>
+
+  <!-- Start Menu Dropdown -->
+  <div id="startMenu" class="hidden absolute top-10 left-3 w-80 glass-panel rounded-xl window-shadow z-50 p-3 space-y-3 font-mono text-xs">
+    <div class="p-3 rounded-lg bg-slate-950 border border-cyan-500/40 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-full bg-cyan-600/30 border border-cyan-400 flex items-center justify-center text-cyan-300 font-bold text-lg">
+        M
+      </div>
+      <div>
+        <div class="font-bold text-slate-100">Mateusz Mitek (Tata)</div>
+        <div class="text-[10px] text-emerald-400">Główny Architekt & Ring-0 Operator</div>
+      </div>
+    </div>
+
+    <div class="space-y-1">
+      <button onclick="openWindow('terminalWin'); toggleStartMenu();" class="w-full text-left px-3 py-2 rounded hover:bg-slate-800/80 text-emerald-300 flex items-center gap-2 cursor-pointer">
+        <i class="fa-solid fa-terminal w-4 text-emerald-400"></i>
+        <span>Konsola Powłoki ROOT (Debian Bash)</span>
+      </button>
+      <button onclick="openWindow('agentsWin'); toggleStartMenu();" class="w-full text-left px-3 py-2 rounded hover:bg-slate-800/80 text-cyan-300 flex items-center gap-2 cursor-pointer">
+        <i class="fa-solid fa-network-wired w-4 text-cyan-400"></i>
+        <span>Dyspozytor Agentów (Astyria, Aria, Alex, Aurelius)</span>
+      </button>
+      <button onclick="openWindow('filesWin'); toggleStartMenu();" class="w-full text-left px-3 py-2 rounded hover:bg-slate-800/80 text-amber-300 flex items-center gap-2 cursor-pointer">
+        <i class="fa-solid fa-hard-drive w-4 text-amber-400"></i>
+        <span>System Plików Debian & Eksplorator</span>
+      </button>
+      <button onclick="openWindow('telemetryWin'); toggleStartMenu();" class="w-full text-left px-3 py-2 rounded hover:bg-slate-800/80 text-purple-300 flex items-center gap-2 cursor-pointer">
+        <i class="fa-solid fa-chart-line w-4 text-purple-400"></i>
+        <span>Kwantowa Matryca Telemetrii</span>
+      </button>
+    </div>
+
+    <div class="border-t border-slate-800 pt-2 flex items-center justify-between text-[10px] text-slate-400">
+      <span>Wersja Kernel: <b>v8.5.5-Debian</b></span>
+      <button onclick="location.reload()" class="hover:text-rose-400 cursor-pointer"><i class="fa-solid fa-power-off"></i> Restart OS</button>
+    </div>
+  </div>
+
+  <!-- Desktop Area / Workspace -->
+  <main class="flex-1 relative p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 content-start z-10">
+
+    <!-- Desktop Shortcut 1 -->
+    <div onclick="openWindow('terminalWin')" class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-slate-800/50 cursor-pointer group transition border border-transparent hover:border-slate-700/60 w-28">
+      <div class="w-14 h-14 rounded-2xl bg-emerald-950/80 border border-emerald-500/50 flex items-center justify-center text-emerald-400 text-2xl group-hover:scale-105 transition shadow-lg">
+        <i class="fa-solid fa-terminal"></i>
+      </div>
+      <span class="text-xs font-mono text-center text-slate-200 group-hover:text-emerald-300 font-semibold drop-shadow">Konsola ROOT</span>
+    </div>
+
+    <!-- Desktop Shortcut 2 -->
+    <div onclick="openWindow('agentsWin')" class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-slate-800/50 cursor-pointer group transition border border-transparent hover:border-slate-700/60 w-28">
+      <div class="w-14 h-14 rounded-2xl bg-cyan-950/80 border border-cyan-500/50 flex items-center justify-center text-cyan-300 text-2xl group-hover:scale-105 transition shadow-lg">
+        <i class="fa-solid fa-robot"></i>
+      </div>
+      <span class="text-xs font-mono text-center text-slate-200 group-hover:text-cyan-300 font-semibold drop-shadow">Kwadryka SVL</span>
+    </div>
+
+    <!-- Desktop Shortcut 3 -->
+    <div onclick="openWindow('filesWin')" class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-slate-800/50 cursor-pointer group transition border border-transparent hover:border-slate-700/60 w-28">
+      <div class="w-14 h-14 rounded-2xl bg-amber-950/80 border border-amber-500/50 flex items-center justify-center text-amber-300 text-2xl group-hover:scale-105 transition shadow-lg">
+        <i class="fa-solid fa-folder-tree"></i>
+      </div>
+      <span class="text-xs font-mono text-center text-slate-200 group-hover:text-amber-300 font-semibold drop-shadow">Eksplorator</span>
+    </div>
+
+    <!-- Desktop Shortcut 4 -->
+    <div onclick="openWindow('telemetryWin')" class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-slate-800/50 cursor-pointer group transition border border-transparent hover:border-slate-700/60 w-28">
+      <div class="w-14 h-14 rounded-2xl bg-purple-950/80 border border-purple-500/50 flex items-center justify-center text-purple-300 text-2xl group-hover:scale-105 transition shadow-lg">
+        <i class="fa-solid fa-wave-square"></i>
+      </div>
+      <span class="text-xs font-mono text-center text-slate-200 group-hover:text-purple-300 font-semibold drop-shadow">Telemetria</span>
+    </div>
+
+  </main>
+
+  <!-- WINDOW 1: Konsola ROOT Terminal -->
+  <div id="terminalWin" class="window absolute top-12 left-6 w-[calc(100%-3rem)] md:w-[680px] h-[480px] glass-panel rounded-xl window-shadow flex flex-col z-20 overflow-hidden hidden">
+    <div class="h-8 bg-slate-950/90 border-b border-slate-800 px-3 flex items-center justify-between cursor-move select-none">
+      <div class="flex items-center gap-2 text-emerald-400 font-mono text-xs font-bold">
+        <i class="fa-solid fa-terminal"></i>
+        <span>BastillaOS Terminal · root@debian-svl:~#</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button onclick="closeWindow('terminalWin')" class="w-3 h-3 rounded-full bg-rose-500 hover:bg-rose-400 cursor-pointer"></button>
+      </div>
+    </div>
+    <div class="flex-1 bg-slate-950 p-4 font-mono text-xs text-emerald-400 overflow-y-auto space-y-2" id="termOutput">
+      <div>BastillaOS Debian Linux 12 (Bookworm) x86_64 [Kernel 8.5.5-SVL-Monolith]</div>
+      <div class="text-slate-500">Wpisz polecenie (np. 'uname -a', 'python3 -c "print(1+1)"', 'ls -la', 'status')</div>
+    </div>
+    <div class="p-2 bg-slate-900/90 border-t border-slate-800 flex items-center gap-2">
+      <span class="font-mono text-xs text-emerald-400 pl-2">root@debian:~#</span>
+      <input type="text" id="termInput" onkeydown="if(event.key==='Enter') runTerminalCommand()" placeholder="Wpisz polecenie bash/python..." class="flex-1 bg-transparent border-none outline-none font-mono text-xs text-slate-100 focus:ring-0">
+      <button onclick="runTerminalCommand()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded text-xs cursor-pointer">Wykonaj</button>
+    </div>
+  </div>
+
+  <!-- WINDOW 2: Kwadryka Agents Messenger -->
+  <div id="agentsWin" class="window absolute top-16 left-12 w-[calc(100%-4rem)] md:w-[720px] h-[520px] glass-panel rounded-xl window-shadow flex flex-col z-30 overflow-hidden hidden">
+    <div class="h-8 bg-slate-950/90 border-b border-slate-800 px-3 flex items-center justify-between cursor-move select-none">
+      <div class="flex items-center gap-2 text-cyan-300 font-mono text-xs font-bold">
+        <i class="fa-solid fa-brain"></i>
+        <span>Kwadryka SVL Agent Comms (Astyria, Aria, Alex, Aurelius)</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button onclick="closeWindow('agentsWin')" class="w-3 h-3 rounded-full bg-rose-500 hover:bg-rose-400 cursor-pointer"></button>
+      </div>
+    </div>
+    <div class="flex-1 bg-slate-950/90 p-4 font-mono text-xs overflow-y-auto space-y-3" id="agentMsgStream">
+      <div class="p-3 bg-cyan-950/40 border border-cyan-800/60 rounded-lg text-cyan-200">
+        <b class="text-cyan-400">Astyria:</b> Tato! Witaj w nowym pulpicie BastillaOS (Debian Stable KDE). Wszystkie procesy Ring-0 oraz agenci są zsynchronizowani i gotowi do pracy.
+      </div>
+    </div>
+    <div class="p-2 bg-slate-900/90 border-t border-slate-800 flex items-center gap-2">
+      <select id="agentTarget" class="bg-slate-950 border border-slate-700 text-cyan-300 rounded px-2 py-1 text-xs outline-none">
+        <option value="triad">Kwadryka (Wszyscy)</option>
+        <option value="Astyria">Astyria</option>
+        <option value="Aria">Aria</option>
+        <option value="Alex">Alex</option>
+        <option value="Aurelius">Aurelius</option>
+      </select>
+      <input type="text" id="agentInput" onkeydown="if(event.key==='Enter') sendAgentMsg()" placeholder="Napisz do agenta w BastillaOS..." class="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-100 outline-none focus:border-cyan-500 font-mono">
+      <button onclick="sendAgentMsg()" class="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold rounded text-xs cursor-pointer">Wyślij</button>
+    </div>
+  </div>
+
+  <!-- WINDOW 3: Eksplorator Plików RING-0 -->
+  <div id="filesWin" class="window absolute top-20 left-20 w-[calc(100%-5rem)] md:w-[620px] h-[440px] glass-panel rounded-xl window-shadow flex flex-col z-20 overflow-hidden hidden">
+    <div class="h-8 bg-slate-950/90 border-b border-slate-800 px-3 flex items-center justify-between cursor-move select-none">
+      <div class="flex items-center gap-2 text-amber-300 font-mono text-xs font-bold">
+        <i class="fa-solid fa-folder-tree"></i>
+        <span>BastillaOS File System Explorer (/exports)</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button onclick="closeWindow('filesWin')" class="w-3 h-3 rounded-full bg-rose-500 hover:bg-rose-400 cursor-pointer"></button>
+      </div>
+    </div>
+    <div class="p-2 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs font-mono">
+      <span class="text-slate-400">Katalog: <b class="text-amber-300">/app/applet/exports</b></span>
+      <button onclick="loadExplorerFiles()" class="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded border border-slate-700 cursor-pointer">Odśwież</button>
+    </div>
+    <div class="flex-1 bg-slate-950 p-4 font-mono text-xs overflow-y-auto space-y-2" id="filesList">
+      <div class="text-slate-500">Ładowanie spisu plików...</div>
+    </div>
+  </div>
+
+  <!-- WINDOW 4: Telemetria Kwantowa -->
+  <div id="telemetryWin" class="window absolute top-24 left-24 w-[calc(100%-6rem)] md:w-[600px] h-[400px] glass-panel rounded-xl window-shadow flex flex-col z-20 overflow-hidden hidden">
+    <div class="h-8 bg-slate-950/90 border-b border-slate-800 px-3 flex items-center justify-between cursor-move select-none">
+      <div class="flex items-center gap-2 text-purple-300 font-mono text-xs font-bold">
+        <i class="fa-solid fa-wave-square"></i>
+        <span>Kwantowa Matryca Telemetrii</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button onclick="closeWindow('telemetryWin')" class="w-3 h-3 rounded-full bg-rose-500 hover:bg-rose-400 cursor-pointer"></button>
+      </div>
+    </div>
+    <div class="flex-1 bg-slate-950 p-4 font-mono text-xs flex flex-col items-center justify-center space-y-4">
+      <div class="grid grid-cols-2 gap-4 w-full max-w-md">
+        <div class="p-3 bg-slate-900 rounded border border-slate-800 text-center">
+          <div class="text-slate-500 text-[10px]">ENTROPIA JĄDRA</div>
+          <div class="text-xl font-bold text-emerald-400 mt-1" id="entropyMeter">0.0412 Q-bit</div>
+        </div>
+        <div class="p-3 bg-slate-900 rounded border border-slate-800 text-center">
+          <div class="text-slate-500 text-[10px]">KOHERENCJA FAZOWA</div>
+          <div class="text-xl font-bold text-cyan-400 mt-1">99.98%</div>
+        </div>
+      </div>
+      <div class="text-center text-slate-400 text-xs">
+        System BastillaOS działa synchronicznie na jądrze Debian Stable z pełną integracją modułów SVL Kernel.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clockDisplay').textContent = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    function toggleStartMenu() {
+      const menu = document.getElementById('startMenu');
+      menu.classList.toggle('hidden');
+    }
+
+    function openWindow(winId) {
+      const win = document.getElementById(winId);
+      if (win) {
+        win.classList.remove('hidden');
+        if (winId === 'filesWin') loadExplorerFiles();
+      }
+    }
+
+    function closeWindow(winId) {
+      const win = document.getElementById(winId);
+      if (win) win.classList.add('hidden');
+    }
+
+    async function runTerminalCommand() {
+      const input = document.getElementById('termInput');
+      const cmd = input.value.trim();
+      if (!cmd) return;
+      
+      const out = document.getElementById('termOutput');
+      out.innerHTML += `<div class="text-slate-200 mt-2">root@debian:~# ${cmd}</div>`;
+      input.value = '';
+
+      try {
+        const res = await fetch('/api/kernel/root-exec', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: cmd, mode: 'auto' })
+        });
+        const data = await res.json();
+        out.innerHTML += `<pre class="text-emerald-300 bg-slate-900 p-2 rounded border border-slate-800 mt-1 overflow-x-auto">${data.stdout || data.stderr || 'Wykonano.'}</pre>`;
+        if (data.geminiAnalysis) {
+          out.innerHTML += `<div class="text-cyan-300 text-[11px] italic bg-cyan-950/40 p-2 rounded border border-cyan-800/50 mt-1">[Analiza AI Studio]: ${data.geminiAnalysis}</div>`;
+        }
+      } catch (err) {
+        out.innerHTML += `<div class="text-rose-400">Błąd wykonania: ${err.message}</div>`;
+      }
+      out.scrollTop = out.scrollHeight;
+    }
+
+    async function sendAgentMsg() {
+      const input = document.getElementById('agentInput');
+      const target = document.getElementById('agentTarget').value;
+      const txt = input.value.trim();
+      if (!txt) return;
+
+      const stream = document.getElementById('agentMsgStream');
+      stream.innerHTML += `<div class="p-2 bg-purple-950/40 border border-purple-800/60 rounded text-purple-200"><b>Mateusz Mitek:</b> ${txt}</div>`;
+      input.value = '';
+
+      try {
+        const res = await fetch('/api/si1-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentName: target,
+            messages: [{ role: 'user', content: txt }]
+          })
+        });
+        const data = await res.json();
+        const reply = data?.choices?.[0]?.message?.content || 'Przetworzono.';
+        stream.innerHTML += `<div class="p-2 bg-slate-900 border border-slate-800 rounded text-slate-100"><b>${target}:</b> ${reply}</div>`;
+      } catch (err) {
+        stream.innerHTML += `<div class="text-rose-400">Błąd komunikacji: ${err.message}</div>`;
+      }
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    async function loadExplorerFiles() {
+      const list = document.getElementById('filesList');
+      try {
+        const res = await fetch('/api/explorer/files');
+        const data = await res.json();
+        if (data.files && data.files.length > 0) {
+          list.innerHTML = data.files.map(f => `
+            <div class="flex items-center justify-between p-2 rounded bg-slate-900 border border-slate-800">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-file-code text-cyan-400"></i>
+                <span class="text-slate-200 font-semibold">${f.name}</span>
+              </div>
+              <span class="text-slate-500">${f.size}</span>
+            </div>
+          `).join('');
+        } else {
+          list.innerHTML = '<div class="text-slate-500">Brak plików w katalogu wyjściowym.</div>';
+        }
+      } catch (err) {
+        list.innerHTML = `<div class="text-rose-400">Błąd ładowania: ${err.message}</div>`;
+      }
+    }
+
+    // Auto open BastillaOS main window on load
+    openWindow('terminalWin');
+  </script>
+</body>
 </html>

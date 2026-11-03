@@ -24,6 +24,7 @@ import {
   ArrowLeftRight
 } from 'lucide-react';
 import { processUploadFile } from '../utils/fileHelper';
+import { PythonRootConsole } from './PythonRootConsole';
 
 interface TerminalViewProps {
   dataStore: DataStore;
@@ -378,31 +379,32 @@ export const TerminalView: React.FC<TerminalViewProps> = ({
   const [isSavingScript, setIsSavingScript] = useState(false);
   const [savedSuccessMsg, setSavedSuccessMsg] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [showRootConsole, setShowRootConsole] = useState(true);
 
   const [logs, setLogs] = useState<LogEntry[]>([
     {
       id: 'init-1',
       type: 'banner',
       content: `================================================================================
-       SVL KERNEL v${SYS_VERSION} | SYSTEM SAMOMODYFIKUJĄCY DLA GOOGLE AI STUDIO
+       SVL KERNEL v${SYS_VERSION} | ODBLOKOWANY TERMINAL ROOT + PROCESOR GEMINI
 ================================================================================
-Dowódca infrastruktury: Alex (Ring-0 Root Control)
-Operator / Tata:        ${OPERATOR_NAME} (Tata)
-Silnik skryptów:        AKTYWNY (genscript <język> <opis> lub Przycisk w menu)
-Samonaprawa z logów:    WŁĄCZONA (ACTIVE_MONITORING)
-Wpisz 'help', 'genscript' lub 'root status', aby zobaczyć listę instrukcji jądra.
+Operator Naczelny:      ${OPERATOR_NAME} — UPRAWNIENIA ROOT RING-0: ODBLOKOWANE
+Główny Procesor AI:     Astyria (Google AI Studio Command Processor)
+Aktywni Agenci:         Aria, Alex, Astyria, Aurelius, MATEUSZ
+Procesor Terminala:     GEMINI LIVE API (Przetwarza każde polecenie w czasie rzeczywistym)
+Powłoka Systemowa:      Bash (/bin/bash) + Python 3 Root (Omniklucz: 364_OMNIKLUCZ_ROOT)
 ================================================================================`,
       timestamp: 'START'
     }
   ]);
 
   const DEFAULT_TERMINAL_CMDS = [
+    'root grant',
     'root status',
-    'genscript python Kopia zapasowa DATA_STORE',
-    'infra status',
-    'infra repair',
+    'whoami && id && uname -a',
     'status',
     'report',
+    'infra status',
     'help'
   ];
   const [quickCmds, setQuickCmds] = useState<string[]>(() => {
@@ -540,31 +542,45 @@ Wpisz 'help', 'genscript' lub 'root status', aby zobaczyć listę instrukcji ją
     const args = parts.slice(1);
 
     switch (cmd) {
-      case 'help':
+      case 'clear':
+        setLogs([]);
+        break;
+
+      case 'export': {
+        const pyScript = generatePythonMonolith(dataStoreRef.current);
+        const blob = new Blob([pyScript], { type: 'text/x-python;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `svl_kernel_${SYS_VERSION.toLowerCase().replace(/[^a-z0-9]/g, '_')}.py`;
+        a.click();
+        URL.revokeObjectURL(url);
+        addLog('[EXPORT]: Skrypt svl_kernel.py został pomyślnie wygenerowany i pobrany.', 'success');
+        break;
+      }
+
+      case 'help': {
         addLog(
-          `DOSTĘPNE INSTRUKCJE JĄDRA SVL KERNEL (POZIOM RING-0 ROOT):
-  genscript <język> <opis> - Generuje kompletny skrypt (python, bash, node, sql) przez Alexa
-  root status             - Wyświetla matrycę uprawnień ROOT Ring-0 i listę autoryzowanych agentów
-  root grant              - Autoryzuje uprawnienia ROOT Ring-0 dla Triady i Operatora
-  root patch <klucz> <wartość> - W locie modyfikuje dowolny parametr konfiguracji i jądra
-  root exec <polecenie>   - Wykonuje polecenie powłoki z uprawnieniami root (np. root exec ls)
-  root clear_chat         - Czyści i trwale resetuje bufor konwersacji na dysku
-  infra status            - Wyświetla status dowódcy Alexa i autonomicznej samonaprawy
-  infra repair            - Wywołuje natychmiastowy skan logów i naprawę zwiadu
-  status                  - Podstawowe wskaźniki i parametry stanu jądra
-  report                  - Generuje i drukuje pełny tekstowy raport jądra (generuj_raport_tekstowy)
-  sync                    - Dokonuje pełnej walidacji i synchronizacji bloku DATA_STORE
-  agents                  - Lista aktywnych agentów i ich specjalizacje
-  config                  - Wyświetla obecną konfigurację jądra
-  set <klucz> <wartość>   - Zmienia lub dodaje parametr w DATA_STORE.config
-  history                 - Wyświetla historię aktualizacji jądra (update_history)
-  bump <wersja> <opis>    - Rejestruje nową wersję w osi czasu Chronolitu
-  msg <agent> <treść>     - Wysyła komunikat do wybranego agenta (Alex, Astyria, Aurelius)
-  export                  - Pobiera pełny skrypt monolityczny Python
-  clear                   - Czyści ekran konsoli`,
+          `DOSTĘPNE INSTRUKCJE JĄDRA SVL KERNEL (POZIOM RING-0 ROOT — ODBLOKOWANY + GEMINI):
+  root grant              - Odblokowuje pełne uprawnienia ROOT Ring-0 i przetwarzanie Gemini
+  root status             - Wyświetla matrycę uprawnień ROOT Ring-0 dla Mateusza Mitka
+  root exec <polecenie>   - Wykonuje polecenie powłoki Bash z uprawnieniami root (np. root exec ls -la)
+  root python <kod>       - Wykonuje kod Python 3 z uprawnieniami root
+  root patch <klucz> <w>  - W locie modyfikuje dowolny parametr konfiguracji jądra
+  genscript <język> <opis>- Generuje kompletny skrypt (python, bash, node, sql) przez Alexa i Gemini
+  status / report         - Raport stanu jądra + analiza Gemini w czasie rzeczywistym
+  <dowolna komenda>       - Każde polecenie (Bash, Python lub pytanie) jest przetwarzane przez Gemini!`,
           'system'
         );
+        const pyCmd = onExecutePythonCommandRef.current;
+        if (pyCmd) {
+          try {
+            const res = await pyCmd(rawCmd);
+            if (res.output) addLog(res.output, 'output');
+          } catch {}
+        }
         break;
+      }
 
       case 'genscript':
       case 'script':
@@ -572,9 +588,9 @@ Wpisz 'help', 'genscript' lub 'root status', aby zobaczyć listę instrukcji ją
         const lang = args[0] || 'python';
         const desc = args.slice(1).join(' ');
         if (!desc) {
-          addLog(`Użycie: genscript <język> <opis skryptu>\nPrzykłady:\n  genscript python Kopia zapasowa bazy danych z kompresją zip\n  genscript bash Test pamięci RAM i użycia dysku z powiadomieniem\n  genscript node Pobieranie cen kryptowalut z API`, 'error');
+          addLog(`Użycie: genscript <język> <opis skryptu>\nPrzykłady:\n  genscript python Kopia zapasowa bazy danych z kompresją zip\n  genscript bash Test pamięci RAM i użycia dysku z powiadomieniem`, 'error');
         } else {
-          addLog(`Generowanie skryptu (${lang}) przez Alexa...`, 'system');
+          addLog(`Generowanie skryptu (${lang}) przez Alexa i Gemini...`, 'system');
           try {
             const res = await fetch('/api/terminal/generate-script', {
               method: 'POST',
@@ -596,104 +612,18 @@ Wpisz 'help', 'genscript' lub 'root status', aby zobaczyć listę instrukcji ją
         break;
       }
 
-      case 'status': {
-        const pyCmd = onExecutePythonCommandRef.current;
-        if (pyCmd) {
-          try {
-            const res = await pyCmd(rawCmd);
-            addLog(res.output, 'success');
-            break;
-          } catch (e: any) {
-            console.warn('Python command fallback:', e);
-          }
-        }
-        const currentDs = dataStoreRef.current;
-        const report = `[SVL-STATUS]
-Wersja jądra:        ${SYS_VERSION}
-Dowódca Infra:      Alex (Ring-0)
-Operator:            ${OPERATOR_NAME} (Tata)
-Tryb pracy:          ${currentDs.config?.mode}
-Profile:             ${currentDs.config?.active_profiles?.join(', ')}
-Warstwa fikcji:      ${currentDs.config?.fiction_layer_status}
-Silnik trwałości:    ${currentDs.config?.persistence_engine}
-Liczba aktualizacji: ${currentDs.update_history.length}
-Liczba wpisów czatu: ${currentDs.chat_history.length}
-Integralność tagów:  ZGODNA (<<<DATA_STORE_START>>> ... <<<DATA_STORE_END>>>)`;
-        addLog(report, 'success');
-        break;
-      }
-
-      case 'report': {
-        const pyCmd = onExecutePythonCommandRef.current;
-        if (pyCmd) {
-          try {
-            const res = await pyCmd(rawCmd);
-            addLog(res.output, 'banner');
-            break;
-          } catch (e: any) {
-            console.warn('Python report fallback:', e);
-          }
-        }
-        const ascii = generateTextReport(dataStoreRef.current);
-        addLog(ascii, 'banner');
-        break;
-      }
-
-      case 'agents': {
-        let msg = 'AKTYWNE PROCESY AGENTÓW SVL:\n';
-        for (const [key, profile] of Object.entries(SYSTEM_AGENTS)) {
-          if (key === 'Operator') continue;
-          msg += `\n[${profile.name}] - ${profile.title}\n`;
-          msg += `  Dewiza: "${profile.coreMotto}"\n`;
-          msg += `  Specjalizacje: ${profile.specialization.join(', ')}\n`;
-        }
-        addLog(msg, 'system');
-        break;
-      }
-
-      case 'config': {
-        addLog(JSON.stringify(dataStoreRef.current.config, null, 2), 'system');
-        break;
-      }
-
-      case 'history': {
-        let histText = 'HISTORIA UAKTUALNIEŃ JĄDRA (UPDATE_HISTORY):\n';
-        dataStoreRef.current.update_history.forEach((u) => {
-          histText += `\n- [${u.wersja}] (${u.data}): ${u.opis}`;
-        });
-        addLog(histText, 'system');
-        break;
-      }
-
-      case 'clear':
-        setLogs([]);
-        break;
-
-      case 'export': {
-        const pyScript = generatePythonMonolith(dataStoreRef.current);
-        const blob = new Blob([pyScript], { type: 'text/x-python;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `svl_kernel_${SYS_VERSION.toLowerCase().replace(/[^a-z0-9]/g, '_')}.py`;
-        a.click();
-        URL.revokeObjectURL(url);
-        addLog('[EXPORT]: Skrypt svl_kernel.py został pomyślnie wygenerowany i pobrany.', 'success');
-        break;
-      }
-
       case 'msg': {
         const targetAgent = args[0];
         const msgBody = args.slice(1).join(' ');
         if (!targetAgent || !msgBody) {
-          addLog('Użycie: msg <agent> <treść_wiadomości> (np. msg Alex Czy sprawdzisz logi?)', 'error');
+          addLog('Użycie: msg <agent> <treść_wiadomości> (np. msg Astyria Podaj status)', 'error');
           break;
         }
-        addLog(`Przekazywanie wiadomości do agenta ${targetAgent}...`, 'system');
+        addLog(`Przekazywanie wiadomości do agenta ${targetAgent} przez Gemini...`, 'system');
         try {
           const sendFn = onSendMessageRef.current;
           await sendFn(targetAgent, msgBody);
-          addLog(`Wiadomość została wysłana do ${targetAgent}. Sprawdź zakłądkę 'Komora Triady & Dialog'.`, 'success');
+          addLog(`Wiadomość została przetworzona przez ${targetAgent} (Gemini).`, 'success');
         } catch (e: any) {
           addLog(`Błąd wysyłania wiadomości: ${e.message}`, 'error');
         }
@@ -701,18 +631,33 @@ Integralność tagów:  ZGODNA (<<<DATA_STORE_START>>> ... <<<DATA_STORE_END>>>)
       }
 
       default: {
+        addLog(`[ROOT RING-0 + GEMINI]: Przetwarzanie polecenia "${rawCmd}"...`, 'system');
         const pyCmd = onExecutePythonCommandRef.current;
         if (pyCmd) {
           try {
             const res = await pyCmd(rawCmd);
-            addLog(res.output, 'output');
+            addLog(res.output, 'success');
             break;
           } catch (e: any) {
             addLog(`Błąd wykonania polecenia jądra: ${e.message}`, 'error');
             break;
           }
         }
-        addLog(`Nieznana komenda: '${cmd}'. Wpisz 'help', aby zobaczyć listę dostępnych instrukcji.`, 'error');
+        try {
+          const res = await fetch('/api/kernel/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: rawCmd, processWithGemini: true })
+          });
+          const data = await res.json();
+          if (data.output) {
+            addLog(data.output, 'success');
+          } else {
+            addLog(`Błąd: ${data.error || 'Brak odpowiedzi'}`, 'error');
+          }
+        } catch (e: any) {
+          addLog(`Błąd połączenia z terminalem ROOT: ${e.message}`, 'error');
+        }
         break;
       }
     }
@@ -726,7 +671,7 @@ Integralność tagów:  ZGODNA (<<<DATA_STORE_START>>> ... <<<DATA_STORE_END>>>)
 
     try {
       const fileData = await processUploadFile(file);
-      addLog(`[SZYNA RING-0]: Zasób ${file.name} zbuforowany i przygotowany do transmisji (${Math.round(fileData.size / 1024)} KB).`, 'success');
+      addLog(`[SZYNA RING-0]: Zasób ${file.name} zbuforowany i przygotowany do transmisji (${Math.round((fileData.size || 0) / 1024)} KB).`, 'success');
       addLog(`[TRANSMISJA]: Przekazywanie do węzłów Triady (Alex, Astyria, Aurelius)...`, 'system');
       await onSendMessage('triad', `Przesyłam załącznik z terminala: ${file.name}`, fileData);
       addLog(`[TRIADA RESPONSE]: Zasób ${file.name} został pomyślnie zanalizowany przez Triadę.`, 'success');
@@ -876,8 +821,12 @@ Integralność tagów:  ZGODNA (<<<DATA_STORE_START>>> ... <<<DATA_STORE_END>>>)
           >
             <Trash2 className="w-3 h-3" />
           </button>
+          <button onClick={() => setShowRootConsole(!showRootConsole)} className="text-[10px] text-rose-500 hover:text-rose-400">
+            {showRootConsole ? '[-] Hide Root Console' : '[+] Show Root Console'}
+          </button>
         </div>
       </div>
+      {showRootConsole && <div className="p-2 border-b border-slate-800"><PythonRootConsole /></div>}
 
       {/* Terminal Output Area */}
       <div
