@@ -63,6 +63,8 @@ export function mountSvlMcp(app: Express, deps: Dependencies) {
   const metadata = { resource: config.resource, authorization_servers: [config.issuer], scopes_supported: ['svl:read'], bearer_methods_supported: ['header'] };
   app.get(metadataPath, (_req, res) => res.json(metadata));
   app.get('/.well-known/oauth-protected-resource', (_req, res) => res.json(metadata));
+  // Public diagnostic endpoint: no secrets, useful for automated connector checks.
+  app.get('/api/mcp/ready', (_req, res) => res.json({ ready: true, transport: 'streamable-http', endpoint: config.resource, oauthDiscovery: metadataUrl, loginRequired: true }));
   const jwks = createRemoteJWKSet(new URL(config.jwksUrl));
   const auth: RequestHandler = async (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');

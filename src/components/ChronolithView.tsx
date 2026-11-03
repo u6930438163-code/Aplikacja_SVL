@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { DataStore, UpdateRecord, OPERATOR_NAME, SYS_VERSION } from '../kernel/svlKernel';
-import { History, Plus, GitCommit, CheckCircle, Clock, Calendar, ArrowUpRight } from 'lucide-react';
+import { History, Plus, GitCommit, CheckCircle, Clock, Calendar, ArrowUpRight, RotateCcw } from 'lucide-react';
 
 interface ChronolithViewProps {
   dataStore: DataStore;
   onUpdateDataStore: (updater: (prev: DataStore) => DataStore) => void;
+  onRevertToFirstCheckpoint?: () => void;
 }
 
-export const ChronolithView: React.FC<ChronolithViewProps> = ({ dataStore, onUpdateDataStore }) => {
+export const ChronolithView: React.FC<ChronolithViewProps> = ({ dataStore, onUpdateDataStore, onRevertToFirstCheckpoint }) => {
   const [newVersion, setNewVersion] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -40,7 +41,7 @@ export const ChronolithView: React.FC<ChronolithViewProps> = ({ dataStore, onUpd
   };
 
   return (
-    <div className="flex flex-col flex-1 min-h-[600px] bg-slate-950 font-mono text-xs">
+    <div className="flex flex-col h-[calc(100vh-125px)] bg-slate-950 font-mono text-xs">
       {/* Top Banner */}
       <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -53,13 +54,25 @@ export const ChronolithView: React.FC<ChronolithViewProps> = ({ dataStore, onUpd
           </div>
         </div>
 
-        <button
-          onClick={() => setIsAdding(!isAdding)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold transition cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>{isAdding ? 'Anuluj' : 'Wypuść nową wersję'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {onRevertToFirstCheckpoint && (
+            <button
+              onClick={onRevertToFirstCheckpoint}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-amber-950 border border-amber-700/80 hover:bg-amber-900 text-amber-200 font-bold transition cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span>Cofnij do 1. checkpointa</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsAdding(!isAdding)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{isAdding ? 'Anuluj' : 'Wypuść nową wersję'}</span>
+          </button>
+        </div>
       </div>
 
       {successMsg && (

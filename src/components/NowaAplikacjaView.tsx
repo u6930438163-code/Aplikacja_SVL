@@ -123,7 +123,7 @@ export const NowaAplikacjaView: React.FC = () => {
           <div>
             <h1 className="text-base font-bold text-white flex items-center gap-2">
               <span>Nowa Aplikacja (Quantum HyperOS)</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 mono font-semibold">v5.8.0-NLP-Quantum-Max</span>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 mono font-semibold">v10.0.0</span>
             </h1>
             <p className="text-xs text-slate-400 mono">Katalog: <span className="text-emerald-400">/Nowa aplikacja</span> · 100% Wbudowane NLP</p>
           </div>

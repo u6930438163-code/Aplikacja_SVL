@@ -1,13 +1,10 @@
 {
   "name": "Nowy_system",
-  "version": "8.5.5",
-  "description": "Nowy system bazujący na architekturze SVL Kernel v8.5.5 (zsynchronizowany z GitHub, bez NLP).",
-  "engine": "Dynamic-Adaptive-Triad-WithoutNLP",
+  "version": "1.0.0",
+  "description": "Nowy system bazujący na architekturze SVL Kernel.",
+  "engine": "Dynamic-Adaptive-Triad",
   "config": {
     "mode": "New-System-Instance",
-    "persistence_engine": "Stateless-Context-Echo",
-    "listen_port": 3200,
-    "web_port": 3000,
-    "status": "ACTIVE_SYNCHRONIZED"
+    "persistence_engine": "Stateless-Context-Echo"
   }
 }

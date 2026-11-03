@@ -1,74 +1,98 @@
 import { useEffect, useRef } from 'react';
 
-/**
- * Responsywne odpytywanie serwera.
- *
- * - Nigdy nie nakłada żądań na siebie (kolejny cykl startuje dopiero po zakończeniu poprzedniego).
- * - Wstrzymuje się, gdy karta przeglądarki jest ukryta (oszczędza baterię, CPU i serwer).
- * - Po powrocie do karty odświeża dane natychmiast.
- * - Zawsze wywołuje najnowszą wersję `task` (bez restartu timera przy każdym renderze).
- */
 export function usePolling(
-  task: () => void | Promise<unknown>,
-  intervalMs: number,
-  options: { enabled?: boolean; immediate?: boolean; deps?: ReadonlyArray<unknown> } = {}
+  callback: () => Promise<void> | void,
+  intervalMs: number = 4000,
+  options?: boolean | { enabled?: boolean }
 ) {
-  const { enabled = true, immediate = true, deps = [] } = options;
-  const taskRef = useRef(task);
-  taskRef.current = task;
+  const savedCallback = useRef(callback);
+  const enabled = typeof options === 'boolean' ? options : (options?.enabled ?? true);
+
+  useEffect(() => {
+    savedCallback.current = callback;
+  }, [callback]);
 
   useEffect(() => {
     if (!enabled) return;
 
-    let stopped = false;
-    let running = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const isHidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
-
-    const schedule = () => {
-      if (stopped) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(tick, intervalMs);
-    };
+    let timerId: NodeJS.Timeout | null = null;
+    let isCancelled = false;
 
     const tick = async () => {
-      timer = null;
-      if (stopped) return;
-      if (isHidden()) return; // wznowione przez visibilitychange
-      if (running) return schedule();
-      running = true;
+      if (document.visibilityState === 'hidden') return;
       try {
-        await taskRef.current();
-      } catch {
-        // ciche błędy odpytywania w tle
-      } finally {
-        running = false;
-        schedule();
+        await savedCallback.current();
+      } catch (err) {
+        console.warn('[usePolling] Error during polling tick:', err);
       }
     };
 
-    const onVisibility = () => {
-      if (stopped) return;
-      if (!isHidden() && !timer && !running) tick();
+    const schedule = () => {
+      if (isCancelled) return;
+      timerId = setTimeout(async () => {
+        await tick();
+        schedule();
+      }, intervalMs);
     };
 
-    document.addEventListener('visibilitychange', onVisibility);
-    if (immediate) tick();
-    else schedule();
+    tick();
+    schedule();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        tick();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      document.removeEventListener('visibilitychange', onVisibility);
+      isCancelled = true;
+      if (timerId) clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, intervalMs, ...deps]);
+  }, [intervalMs, enabled]);
 }
 
-/**
- * Lekki interwał UI (animacje, zegary), który zatrzymuje się w ukrytej karcie.
- */
-export function useVisibleInterval(callback: () => void, intervalMs: number, enabled = true) {
-  usePolling(callback, intervalMs, { enabled, immediate: false });
+export function useVisibleInterval(callback: () => void, intervalMs: number) {
+  const savedCallback = useRef(callback);
+
+  useEffect(() => {
+    savedCallback.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const start = () => {
+      if (!intervalId && document.visibilityState === 'visible') {
+        savedCallback.current();
+        intervalId = setInterval(() => savedCallback.current(), intervalMs);
+      }
+    };
+
+    const stop = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    start();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        start();
+      } else {
+        stop();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [intervalMs]);
 }

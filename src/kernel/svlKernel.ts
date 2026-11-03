@@ -43,7 +43,7 @@ export interface DataStore {
 
 export const INITIAL_DATA_STORE: DataStore = {
   config: {
-    sys_version: "5.7.0-NLP-Quantum",
+    sys_version: "10.0.0",
     mode: "Google-AI-Studio-Production",
     active_profiles: ["Alex", "Astyria", "Aurelius", "SI_1"],
     fiction_layer_status: "DEACTIVATED_PERMANENTLY",
@@ -351,7 +351,7 @@ export const INITIAL_BACKUP_DATA_STORE: DataStore = {
 
 export const OPERATOR_NAME = "Mateusz Mitek";
 export const OPERATOR_TITLE = "Tata";
-export const SYS_VERSION = "5.7.0-NLP-Quantum";
+export const SYS_VERSION = "10.0.0";
 
 /**
  * Safely normalizes any raw or nested DataStore object (e.g. { store: { config, update_history, chat_history } })
@@ -372,6 +372,9 @@ export function normalizeDataStore(raw: any): DataStore {
     candidate.config && typeof candidate.config === 'object'
       ? { ...INITIAL_DATA_STORE.config, ...candidate.config }
       : { ...INITIAL_DATA_STORE.config };
+  // LocalStorage and old server snapshots must not downgrade a newer release.
+  const match = String(config.sys_version || '').replace(/^v/, '').match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match || Number(match[1]) < 10) config.sys_version = SYS_VERSION;
 
   const update_history: UpdateRecord[] =
     Array.isArray(candidate.update_history) && candidate.update_history.length > 0

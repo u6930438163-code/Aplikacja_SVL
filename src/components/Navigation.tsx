@@ -2,7 +2,7 @@ import React from 'react';
 import { Terminal, MessagesSquare, FileCode2, Database, History, Activity, Cpu, GitBranch, Clock, Sigma, FolderOpen, HardDrive, LayoutGrid, Brain, Github } from 'lucide-react';
 
 export type TabId =
-  | 'nowa_aplikacja'
+  | 'bastillaos'
   | 'comms'
   | 'process_matrix'
   | 'astyria_mission'
@@ -16,7 +16,8 @@ export type TabId =
   | 'file_explorer'
   | 'apps'
   | 'without_nlp'
-  | 'github';
+  | 'github'
+  | 'si1_test';
 
 interface NavigationProps {
   activeTab: TabId;
@@ -36,10 +37,10 @@ export const Navigation: React.FC<NavigationProps> = ({
 }) => {
   const tabs = [
     {
-      id: 'nowa_aplikacja' as TabId,
-      label: '✨ Nowa Aplikacja (Quantum HyperOS)',
-      icon: MessagesSquare,
-      badge: 'APP'
+      id: 'bastillaos' as TabId,
+      label: 'BastillaOS v9.0 [KDE Blue]',
+      icon: LayoutGrid,
+      badge: 'v9.0'
     },
     {
       id: 'comms' as TabId,
@@ -124,6 +125,12 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: 'Eksport GitHub',
       icon: Github,
       badge: 'GIT'
+    },
+    {
+      id: 'si1_test' as TabId,
+      label: 'Test SI1',
+      icon: Brain,
+      badge: 'API'
     }
   ];
 

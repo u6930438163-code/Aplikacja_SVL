@@ -1,31 +1,42 @@
-/**
- * Pobieranie JSON z obsługą ETag.
- *
- * Gdy dane na serwerze się nie zmieniły, serwer odpowiada 304 bez treści,
- * a my pomijamy parsowanie i przebudowę stanu — to główna oszczędność przy
- * częstym odpytywaniu dużego DATA_STORE.
- */
-const etags = new Map<string, string>();
+const etagCache = new Map<string, string>();
+const lastDataCache = new Map<string, any>();
 
-export type ConditionalResult<T> = { changed: true; data: T } | { changed: false; data: null };
+export async function fetchJsonIfChanged<T = any>(url: string): Promise<{ changed: boolean; data?: T }> {
+  try {
+    const headers: Record<string, string> = {};
+    const cachedEtag = etagCache.get(url);
+    if (cachedEtag) {
+      headers['If-None-Match'] = cachedEtag;
+    }
 
-export async function fetchJsonIfChanged<T = any>(url: string, init?: RequestInit): Promise<ConditionalResult<T>> {
-  const headers = new Headers(init?.headers);
-  const known = etags.get(url);
-  if (known) headers.set('If-None-Match', known);
+    const res = await fetch(url, {
+      headers,
+      cache: 'no-cache',
+    });
 
-  const res = await fetch(url, { ...init, headers, cache: 'no-store' });
-  if (res.status === 304) return { changed: false, data: null };
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (res.status === 304) {
+      return { changed: false, data: lastDataCache.get(url) };
+    }
 
-  const etag = res.headers.get('ETag');
-  if (etag) etags.set(url, etag);
-  else etags.delete(url);
+    if (!res.ok) {
+      return { changed: false };
+    }
 
-  return { changed: true, data: (await res.json()) as T };
+    const newEtag = res.headers.get('ETag');
+    if (newEtag) {
+      etagCache.set(url, newEtag);
+    }
+
+    const data = await res.json();
+    lastDataCache.set(url, data);
+    return { changed: true, data };
+  } catch (e) {
+    console.warn('[fetchJsonIfChanged] fetch error for', url, e);
+    return { changed: false };
+  }
 }
 
-/** Zapomina zapamiętany ETag (np. po zapisie, by wymusić pełne pobranie). */
 export function invalidateEtag(url: string) {
-  etags.delete(url);
+  etagCache.delete(url);
+  lastDataCache.delete(url);
 }

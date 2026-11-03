@@ -13,7 +13,7 @@ import { SystemHealthDock } from './components/SystemHealthDock';
 import { usePolling } from './hooks/usePolling';
 import { fetchJsonIfChanged, invalidateEtag } from './utils/fetchJson';
 
-const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v8_6_3_si1_nlp_conversational';
+const LOCAL_STORAGE_KEY = 'svl_kernel_datastore_v9_0_0_lumos_lambda_vision';
 const STATE_URL = '/api/kernel/state';
 
 // ---------------------------------------------------------------------------
@@ -34,11 +34,13 @@ const FileExplorer = lazy(() => import('./components/FileExplorer').then((m) => 
 const AppsStudioView = lazy(() => import('./components/AppsStudioView').then((m) => ({ default: m.AppsStudioView })));
 const WithoutNlpView = lazy(() => import('./components/WithoutNlpView').then((m) => ({ default: m.WithoutNlpView })));
 const GitHubExportView = lazy(() => import('./components/GitHubExportView').then((m) => ({ default: m.GitHubExportView })));
-const NowaAplikacjaView = lazy(() => import('./components/NowaAplikacjaView').then((m) => ({ default: m.NowaAplikacjaView })));
+const Si1TestView = lazy(() => import('./components/Si1TestView').then((m) => ({ default: m.Si1TestView })));
+const BastillaOSView = lazy(() => import('./components/BastillaOSView').then((m) => ({ default: m.BastillaOSView })));
+const BastillaOSDashboardView = lazy(() => import('./components/BastillaOSDashboardView').then((m) => ({ default: m.BastillaOSDashboardView })));
 const ReportModal = lazy(() => import('./components/ReportModal').then((m) => ({ default: m.ReportModal })));
 
 const viewLoaders: Record<TabId, () => Promise<unknown>> = {
-  nowa_aplikacja: () => import('./components/NowaAplikacjaView'),
+  bastillaos: () => import('./components/BastillaOSView'),
   comms: () => import('./components/AgentCommsView'),
   process_matrix: () => import('./components/TaskProcessMatrix'),
   astyria_mission: () => import('./components/AstyriaMissionView'),
@@ -53,6 +55,7 @@ const viewLoaders: Record<TabId, () => Promise<unknown>> = {
   apps: () => import('./components/AppsStudioView'),
   without_nlp: () => import('./components/WithoutNlpView'),
   github: () => import('./components/GitHubExportView'),
+  si1_test: () => import('./components/Si1TestView'),
 };
 
 const prefetched = new Set<TabId>();
@@ -84,11 +87,14 @@ const ViewFallback = () => (
 
 const loadInitialStore = (): DataStore => {
   try {
+    localStorage.removeItem('svl_kernel_datastore_v6_3_0_live_sync_ollama');
     localStorage.removeItem('svl_kernel_datastore_v8_5_1_desktop_ready');
     localStorage.removeItem('svl_kernel_datastore_v8_6_0_without_nlp');
     localStorage.removeItem('svl_kernel_datastore_v8_6_5_without_nlp_hyperos');
     localStorage.removeItem('svl_kernel_datastore_v8_5_5_pure_hyperos');
     localStorage.removeItem('svl_kernel_datastore_v8_6_2_si1_autonomous_nlp');
+    localStorage.removeItem('svl_kernel_datastore_v8_6_3_si1_nlp_conversational');
+    localStorage.removeItem('svl_kernel_datastore_v6_1_0_root_gemini_terminal');
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (stored) return normalizeDataStore(JSON.parse(stored));
   } catch (e) {
@@ -97,11 +103,22 @@ const loadInitialStore = (): DataStore => {
   return normalizeDataStore(INITIAL_DATA_STORE);
 };
 
+const MAX_CHAT_HISTORY = 50; // Keep only the last 50 messages
+
 const persistStore = (store: DataStore) => {
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(store));
+    const prunedChat = (store.chat_history || []).slice(-25);
+    const prunedUpdates = (store.update_history || []).slice(-20);
+
+    const prunedStore = {
+      config: store.config,
+      chat_history: prunedChat,
+      update_history: prunedUpdates,
+    };
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(prunedStore));
   } catch (e) {
     console.error('LocalStorage write failed:', e);
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
   }
 };
 
@@ -131,7 +148,7 @@ export default function App() {
     });
   }, []);
 
-  const [activeTab, setActiveTab] = useState<TabId>('nowa_aplikacja');
+  const [activeTab, setActiveTab] = useState<TabId>('bastillaos');
   const [isAgentLoading, setIsAgentLoading] = useState(false);
   const isAgentLoadingRef = useRef(false);
   isAgentLoadingRef.current = isAgentLoading;
@@ -148,9 +165,20 @@ export default function App() {
     runWhenIdle(() => IDLE_PREFETCH.forEach(prefetchView), 3000);
   }, []);
 
+  // Natychmiastowa synchronizacja ze stanem serwera przy starcie aplikacji
+  useEffect(() => {
+    fetch(STATE_URL, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.store) {
+          setRawDataStore(normalizeDataStore(data.store));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // ---------------------------------------------------------------------------
-  // Synchronizacja z jądrem Python: ETag + wstrzymanie w ukrytej karcie.
-  // Gdy nic się nie zmieniło, serwer zwraca 304 i nie parsujemy ~100 KB JSON.
+  // Synchronizacja na żywo z jądrem Python co 1.5s: ETag + wstrzymanie w ukrytej karcie.
   // ---------------------------------------------------------------------------
   usePolling(async () => {
     if (isAgentLoadingRef.current) return;
@@ -158,7 +186,7 @@ export default function App() {
     if (!result.changed || !result.data?.store) return;
     const incoming = normalizeDataStore(result.data.store);
     setRawDataStore((prev) => (chatSignatureChanged(prev, incoming) ? incoming : prev));
-  }, 4000);
+  }, 1500);
 
   // ---------------------------------------------------------------------------
   // Zapis do localStorage z opóźnieniem i w czasie bezczynności,
@@ -398,8 +426,17 @@ export default function App() {
 
   const renderView = () => {
     switch (activeTab) {
-      case 'nowa_aplikacja':
-        return <NowaAplikacjaView />;
+      case 'bastillaos':
+        return (
+          <BastillaOSDashboardView
+            dataStore={dataStore}
+            onSendMessage={handleSendMessage}
+            isLoading={isAgentLoading}
+            onClearHistory={handleClearHistory}
+            onForceSync={handleForceSync}
+            onExecutePythonCommand={handleExecutePythonCommand}
+          />
+        );
       case 'comms':
         return (
           <AgentCommsView
@@ -447,6 +484,8 @@ export default function App() {
         return <WithoutNlpView />;
       case 'github':
         return <GitHubExportView />;
+      case 'si1_test':
+        return <Si1TestView />;
       default:
         return null;
     }
